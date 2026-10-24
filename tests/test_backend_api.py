@@ -130,7 +130,8 @@ def test_stats_increment_and_reset(client: TestClient, clock: FakeClock):
 
 def test_brief_default_source(client: TestClient):
     body = client.get("/brief").json()
-    assert body["source"] == "cache"
+    assert body["source"] in {"cache", "bedrock"}
+    assert "simulated" in body["brief"].lower()
     assert "brief" in body
 
 

@@ -20,9 +20,15 @@ Run:
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
+
+from backend.sim import HYDROPHONES
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE_PATH = ROOT / "backend" / "cache" / "brief.json"
@@ -33,14 +39,24 @@ MAX_TOKENS = 300
 TEMPERATURE = 0.2
 
 SYSTEM_PROMPT = (
-    "You are a harbor authority writing a short public notice. Use ONLY the "
-    "JSON provided; do not invent any facts. Write exactly 3 plain-language "
-    "sentences: (1) what was detected, naming the hydrophone and the "
-    "confidence; (2) how ships responded, using the before/after speeds and "
-    "the compliance percentage; (3) a recommended action that names any "
-    "vessel that is not complying. You must state that all vessel data is "
-    "simulated and that the detection clip is a synthetic demo clip."
+    "You are writing an internal situation note for harbor authorities, not a "
+    "message to mariners. Do not include any greeting. Use ONLY the JSON "
+    "provided; do not invent, average, or total any facts. Write exactly 3 "
+    "plain-language sentences and no more: "
+    "(1) what was detected, naming the hydrophone and the confidence exactly "
+    "as given; "
+    "(2) how each vessel responded, naming every vessel and quoting its "
+    "before -> after speed exactly as given, and stating the compliance "
+    "percentage exactly as given (never recomputed); "
+    "(3) a recommended action that names the vessel that is not complying, "
+    "and ending that same sentence with a note that all vessel data is "
+    "simulated and the detection clip is a synthetic demo clip. "
+    "Do not put the simulated/synthetic note in its own separate sentence; it "
+    "must be part of sentence 3."
 )
+
+# Maximum sentences accepted from Bedrock before we fall back to the cache.
+MAX_BRIEF_SENTENCES = 3
 
 
 def _get_client():
@@ -86,20 +102,49 @@ def _read_cache() -> str:
     return data["brief"]
 
 
+def _count_sentences(text: str) -> int:
+    """Count sentences by terminal punctuation (., !, ?).
+
+    Consecutive terminators (e.g. "...") count once, and a decimal point
+    between digits (e.g. "9.5") is not treated as a sentence boundary.
+    """
+    # Drop decimal points that sit between digits so they don't end a sentence.
+    cleaned = re.sub(r"(?<=\d)\.(?=\d)", "", text)
+    # Collapse runs of terminal punctuation to a single marker.
+    return len(re.findall(r"[.!?]+", cleaned))
+
+
 def generate_brief_result(
     detection: dict[str, Any], compliance: dict[str, Any]
 ) -> dict[str, str]:
     """Return {"brief", "source"} using Bedrock when possible, else the cache.
 
-    The Bedrock output is only accepted when it is non-empty and contains the
-    word "simulated"; any failure or a failed check falls back to the cache.
+    The Bedrock output is only accepted when it is non-empty, contains the word
+    "simulated", and has no more than MAX_BRIEF_SENTENCES sentences. Any
+    failure or a failed check falls back to the cached brief.
     """
     try:
         text = _call_bedrock(detection, compliance)
-        if text and "simulated" in text.lower():
-            return {"brief": text, "source": "bedrock"}
+        if not text:
+            logger.warning("Bedrock returned empty output; falling back to cache.")
+        elif "simulated" not in text.lower():
+            logger.warning(
+                "Bedrock output missing required 'simulated' note; "
+                "falling back to cache."
+            )
+        else:
+            n = _count_sentences(text)
+            if n > MAX_BRIEF_SENTENCES:
+                logger.warning(
+                    "Bedrock output has %d sentences (max %d); "
+                    "falling back to cache.",
+                    n,
+                    MAX_BRIEF_SENTENCES,
+                )
+            else:
+                return {"brief": text, "source": "bedrock"}
     except Exception:  # noqa: BLE001 - any Bedrock/boto3/env failure falls back to cache
-        pass
+        logger.warning("Bedrock call failed; falling back to cache.", exc_info=True)
     return {"brief": _read_cache(), "source": "cache"}
 
 
@@ -128,17 +173,19 @@ def build_demo_input() -> tuple[dict[str, Any], dict[str, Any]]:
     confidence = float(demo["confidence"])
     # 2-decimal display string from ml/demo_result.json, never a percentage.
     confidence_display = f"{float(demo['confidence_display']):.2f}"
+    # Zone center is the H-2 hydrophone from the sim (never hard-coded here).
+    h2_lat, h2_lon = HYDROPHONES["H-2"]
     detection = {
         "detection_id": "DET-DEMO-1",
         "hydrophone_id": "H-2",
         "confidence": confidence,
         "confidence_display": confidence_display,
-        "zone": {"lat": 42.35, "lon": -70.95, "radius_nm": 10},
+        "zone": {"lat": h2_lat, "lon": h2_lon, "radius_nm": 10},
         "vessels_in_zone": [
-            {"id": "V-1", "name": "Nordic Tide", "speed_before": 16},
-            {"id": "V-2", "name": "Harbor Queen", "speed_before": 22},
-            {"id": "V-3", "name": "Blue Fin II", "speed_before": 11},
-            {"id": "V-4", "name": "Cape Runner", "speed_before": 19},
+            {"id": "V-5", "name": "Nordic Tide", "speed_before": 16},
+            {"id": "V-6", "name": "Harbor Queen", "speed_before": 22},
+            {"id": "V-4", "name": "Blue Fin II", "speed_before": 11},
+            {"id": "V-7", "name": "Cape Runner", "speed_before": 19},
         ],
         "synthetic_demo_clip": True,
         "simulated": True,
@@ -146,11 +193,11 @@ def build_demo_input() -> tuple[dict[str, Any], dict[str, Any]]:
     compliance = {
         "compliance_pct": 75,
         "vessels": [
-            {"id": "V-1", "name": "Nordic Tide", "before": 16, "after": 10, "status": "complying"},
-            {"id": "V-2", "name": "Harbor Queen", "before": 22, "after": 10, "status": "complying"},
-            {"id": "V-3", "name": "Blue Fin II", "before": 11, "after": 9, "status": "complying"},
+            {"id": "V-5", "name": "Nordic Tide", "before": 16, "after": 10, "status": "complying"},
+            {"id": "V-6", "name": "Harbor Queen", "before": 22, "after": 10, "status": "complying"},
+            {"id": "V-4", "name": "Blue Fin II", "before": 11, "after": 9, "status": "complying"},
             {
-                "id": "V-4",
+                "id": "V-7",
                 "name": "Cape Runner",
                 "before": 19,
                 "after": 17,
