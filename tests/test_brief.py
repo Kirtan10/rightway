@@ -47,8 +47,13 @@ def test_output_missing_simulated_falls_back_to_cache(monkeypatch):
 
 def test_valid_output_uses_bedrock(monkeypatch):
     fake = (
-        "Hydrophone H-2 detected a whale up-call. Ships slowed and compliance was 75%. "
-        "Recommend contacting Cape Runner; all vessel data is simulated."
+        "Hydrophone H-2 detected a likely right whale up-call at 1.00 confidence, "
+        "and a 10 nm slow zone was set around it. "
+        "Nordic Tide slowed 16 to 10 knots, Harbor Queen eased 22 to 10 knots, "
+        "Blue Fin II dropped 11 to 9 knots, and Cape Runner held 19 to 17 knots, "
+        "for 75% compliance. "
+        "Authorities should contact Cape Runner to confirm compliance; all vessel "
+        "data is simulated and the detection clip is a synthetic demo clip."
     )
     monkeypatch.setattr(brief, "_get_client", lambda: _FakeClient(fake))
     monkeypatch.setenv("BEDROCK_MODEL_ID", "fake-model")
@@ -57,6 +62,65 @@ def test_valid_output_uses_bedrock(monkeypatch):
 
     assert result["source"] == "bedrock"
     assert result["brief"] == fake
+
+
+def test_output_with_arrow_falls_back_to_cache(monkeypatch):
+    # Uses "->" arrows instead of the required "16 to 10 knots" wording.
+    fake = (
+        "Hydrophone H-2 detected a likely right whale up-call at 1.00 confidence, "
+        "and a 10 nm slow zone was set around it. "
+        "Nordic Tide 16 -> 10 knots, Harbor Queen 22 -> 10 knots, "
+        "Blue Fin II 11 -> 9 knots, and Cape Runner 19 -> 17 knots, for 75% compliance. "
+        "Authorities should contact Cape Runner; all vessel data is simulated "
+        "and the detection clip is a synthetic demo clip."
+    )
+    monkeypatch.setattr(brief, "_get_client", lambda: _FakeClient(fake))
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "fake-model")
+    detection, compliance = brief.build_demo_input()
+    result = brief.generate_brief_result(detection, compliance)
+
+    assert result["source"] == "cache"
+    assert result["brief"] == brief._read_cache()
+
+
+def test_output_with_digit_glued_to_letter_falls_back_to_cache(monkeypatch):
+    # "at75%" glues a digit to a letter, which must be rejected.
+    fake = (
+        "Hydrophone H-2 detected a likely right whale up-call at 1.00 confidence, "
+        "and a 10 nm slow zone was set around it. "
+        "Nordic Tide slowed 16 to 10 knots, Harbor Queen eased 22 to 10 knots, "
+        "Blue Fin II dropped 11 to 9 knots, and Cape Runner held 19 to 17 knots, "
+        "complying at75%. "
+        "Authorities should contact Cape Runner; all vessel data is simulated "
+        "and the detection clip is a synthetic demo clip."
+    )
+    monkeypatch.setattr(brief, "_get_client", lambda: _FakeClient(fake))
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "fake-model")
+    detection, compliance = brief.build_demo_input()
+    result = brief.generate_brief_result(detection, compliance)
+
+    assert result["source"] == "cache"
+    assert result["brief"] == brief._read_cache()
+
+
+def test_output_missing_compliance_pct_falls_back_to_cache(monkeypatch):
+    # Omits the exact "75%" compliance figure, which must be rejected.
+    fake = (
+        "Hydrophone H-2 detected a likely right whale up-call at 1.00 confidence, "
+        "and a 10 nm slow zone was set around it. "
+        "Nordic Tide slowed 16 to 10 knots, Harbor Queen eased 22 to 10 knots, "
+        "Blue Fin II dropped 11 to 9 knots, and Cape Runner held 19 to 17 knots, "
+        "with most vessels complying. "
+        "Authorities should contact Cape Runner; all vessel data is simulated "
+        "and the detection clip is a synthetic demo clip."
+    )
+    monkeypatch.setattr(brief, "_get_client", lambda: _FakeClient(fake))
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "fake-model")
+    detection, compliance = brief.build_demo_input()
+    result = brief.generate_brief_result(detection, compliance)
+
+    assert result["source"] == "cache"
+    assert result["brief"] == brief._read_cache()
 
 
 def test_cached_brief_mentions_simulated_and_synthetic():

@@ -4,9 +4,10 @@ Uses Amazon Bedrock (Converse API) when available, and otherwise falls back to
 the hand-written cached brief in backend/cache/brief.json.
 
 Honesty rules (see .kiro/steering/product.md): the brief must state that vessel
-data is simulated and the demo clip is synthetic. The Bedrock output is only
-trusted when it is non-empty and contains the word "simulated"; otherwise the
-cache is returned.
+data is simulated and the demo clip is synthetic. The Bedrock output is trusted
+only when it is exactly 3 sentences, mentions the "right whale up-call", the
+"10 nm" slow zone, and that data is "simulated", and uses no arrows ("->"/"\u2192");
+otherwise the cached brief is returned.
 
 Public interface:
     generate_brief(detection, compliance) -> str          # contract function
@@ -39,24 +40,40 @@ MAX_TOKENS = 300
 TEMPERATURE = 0.2
 
 SYSTEM_PROMPT = (
-    "You are writing an internal situation note for harbor authorities, not a "
-    "message to mariners. Do not include any greeting. Use ONLY the JSON "
-    "provided; do not invent, average, or total any facts. Write exactly 3 "
-    "plain-language sentences and no more: "
-    "(1) what was detected, naming the hydrophone and the confidence exactly "
-    "as given; "
-    "(2) how each vessel responded, naming every vessel and quoting its "
-    "before -> after speed exactly as given, and stating the compliance "
-    "percentage exactly as given (never recomputed); "
-    "(3) a recommended action that names the vessel that is not complying, "
-    "and ending that same sentence with a note that all vessel data is "
-    "simulated and the detection clip is a synthetic demo clip. "
-    "Do not put the simulated/synthetic note in its own separate sentence; it "
-    "must be part of sentence 3."
+    "You are writing a short internal situation note for harbor authorities. "
+    "Do not include any greeting or salutation. Use ONLY the facts in the "
+    "JSON provided; never invent, average, total, or recompute any number. "
+    "Write exactly three plain-language sentences that read naturally, and "
+    "nothing else. "
+    "Sentence 1: state that hydrophone H-2 detected a likely "
+    '"right whale up-call" (use that exact phrase) with a confidence of '
+    "the value given in confidence_display, and that a "
+    '"10 nm slow zone" (use that exact phrase) was set around it. '
+    "Sentence 2: describe how each vessel responded, naming every vessel and "
+    'writing its speed change in the form "16 to 10 knots" (always use the '
+    'word "to"; never use an arrow or the characters "->"), and state the '
+    "compliance percentage exactly as given. "
+    "State the compliance percentage by copying compliance_display exactly, "
+    "including the % sign (for example 75%); never write the word percent. "
+    "In sentence 2, vary the verbs and don't repeat 'reduced speed' for every "
+    "vessel. "
+    "Sentence 3: give a recommended action that names the vessel that is not "
+    "complying, and end that same sentence with a note that all vessel data "
+    "is simulated and the detection clip is a synthetic demo clip (do not put "
+    "that note in a separate sentence). "
+    "Write the phrases right whale up-call and 10 nm slow zone as normal "
+    "words, without quotation marks."
 )
 
-# Maximum sentences accepted from Bedrock before we fall back to the cache.
-MAX_BRIEF_SENTENCES = 3
+# Exact number of sentences accepted from Bedrock before falling back to cache.
+REQUIRED_BRIEF_SENTENCES = 3
+
+# Phrases that must appear in accepted Bedrock output (case-insensitive).
+REQUIRED_BRIEF_PHRASES = ("right whale up-call", "10 nm", "simulated")
+
+# Substrings that must NOT appear in accepted Bedrock output: arrows and the
+# double-quote character (phrases must be written as normal words).
+FORBIDDEN_BRIEF_SUBSTRINGS = ("->", "\u2192", '"')
 
 
 def _get_client():
@@ -114,35 +131,70 @@ def _count_sentences(text: str) -> int:
     return len(re.findall(r"[.!?]+", cleaned))
 
 
+# A digit glued directly to an ASCII letter (e.g. "at75" or "75knots").
+_DIGIT_LETTER_RE = re.compile(r"[A-Za-z]\d|\d[A-Za-z]")
+
+
+def _compliance_pct_text(compliance: dict[str, Any]) -> str:
+    """Render the compliance percentage exactly as it must appear (e.g. 75%)."""
+    pct = compliance["compliance_pct"]
+    return f"{pct:g}%"
+
+
+def _validation_failure(text: str, compliance: dict[str, Any]) -> str | None:
+    """Return a reason string if `text` fails any check, else None.
+
+    Accepted output must: be non-empty; have exactly REQUIRED_BRIEF_SENTENCES
+    sentences; contain every phrase in REQUIRED_BRIEF_PHRASES; contain the
+    compliance percentage written exactly as f"{pct:g}%"; contain no substring
+    in FORBIDDEN_BRIEF_SUBSTRINGS (arrows/quotes); and contain no digit glued
+    directly to a letter (e.g. "at75").
+    """
+    if not text:
+        return "empty output"
+
+    n = _count_sentences(text)
+    if n != REQUIRED_BRIEF_SENTENCES:
+        return f"expected {REQUIRED_BRIEF_SENTENCES} sentences, found {n}"
+
+    lowered = text.lower()
+    for phrase in REQUIRED_BRIEF_PHRASES:
+        if phrase not in lowered:
+            return f"missing required phrase {phrase!r}"
+
+    pct_text = _compliance_pct_text(compliance)
+    if pct_text not in text:
+        return f"missing compliance percentage {pct_text!r}"
+
+    for bad in FORBIDDEN_BRIEF_SUBSTRINGS:
+        if bad in text:
+            return f"contains forbidden substring {bad!r}"
+
+    m = _DIGIT_LETTER_RE.search(text)
+    if m:
+        return f"digit glued to a letter: {m.group(0)!r}"
+
+    return None
+
+
 def generate_brief_result(
     detection: dict[str, Any], compliance: dict[str, Any]
 ) -> dict[str, str]:
     """Return {"brief", "source"} using Bedrock when possible, else the cache.
 
-    The Bedrock output is only accepted when it is non-empty, contains the word
-    "simulated", and has no more than MAX_BRIEF_SENTENCES sentences. Any
-    failure or a failed check falls back to the cached brief.
+    Bedrock output is accepted only when it passes every check in
+    _validation_failure (exactly 3 sentences; contains "right whale up-call",
+    "10 nm", "simulated", and the compliance percentage as "{pct:g}%"; has no
+    "->"/"\u2192" arrows or double-quotes; and no digit glued to a letter). Any
+    Bedrock failure, or any failed check, logs a warning naming the check and
+    falls back to the cached brief.
     """
     try:
         text = _call_bedrock(detection, compliance)
-        if not text:
-            logger.warning("Bedrock returned empty output; falling back to cache.")
-        elif "simulated" not in text.lower():
-            logger.warning(
-                "Bedrock output missing required 'simulated' note; "
-                "falling back to cache."
-            )
-        else:
-            n = _count_sentences(text)
-            if n > MAX_BRIEF_SENTENCES:
-                logger.warning(
-                    "Bedrock output has %d sentences (max %d); "
-                    "falling back to cache.",
-                    n,
-                    MAX_BRIEF_SENTENCES,
-                )
-            else:
-                return {"brief": text, "source": "bedrock"}
+        reason = _validation_failure(text, compliance)
+        if reason is None:
+            return {"brief": text, "source": "bedrock"}
+        logger.warning("Rejected Bedrock output (%s); falling back to cache.", reason)
     except Exception:
         logger.warning("Bedrock call failed; falling back to cache.", exc_info=True)
     return {"brief": _read_cache(), "source": "cache"}
@@ -190,8 +242,10 @@ def build_demo_input() -> tuple[dict[str, Any], dict[str, Any]]:
         "synthetic_demo_clip": True,
         "simulated": True,
     }
+    compliance_pct = 75
     compliance = {
-        "compliance_pct": 75,
+        "compliance_pct": compliance_pct,
+        "compliance_display": f"{compliance_pct:g}%",
         "vessels": [
             {"id": "V-5", "name": "Nordic Tide", "before": 16, "after": 10, "status": "complying"},
             {"id": "V-6", "name": "Harbor Queen", "before": 22, "after": 10, "status": "complying"},

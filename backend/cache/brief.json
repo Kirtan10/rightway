@@ -1,4 +1,4 @@
 {
-  "brief": "A detection was recorded by hydrophone H-2 with a confidence of 1.00. Nordic Tide changed from 16 -> 10, Harbor Queen from 22 -> 10, Blue Fin II from 11 -> 9, and Cape Runner from 19 -> 17, resulting in 75% compliance. Recommend contacting Cape Runner for non-compliance; all vessel data is simulated and the detection clip is a synthetic demo clip.",
+  "brief": "Hydrophone H-2 detected a likely right whale up-call with a confidence of 1.00, and a 10 nm slow zone was set around it. Nordic Tide reduced speed from 16 to 10 knots, Harbor Queen slowed from 22 to 10 knots, Blue Fin II decreased from 11 to 9 knots, and Cape Runner adjusted from 19 to 17 knots, achieving 75% compliance. Cape Runner should be contacted to ensure full compliance with the slow zone, noting that all vessel data is simulated and the detection clip is a synthetic demo clip.",
   "source": "bedrock"
 }
