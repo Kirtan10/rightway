@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "readme-reminder",
+      "trigger": "PostFileSave",
+      "description": "On change to any file under .kiro/specs/, remind the user to update README.md's Architecture and \"How we built it in Kiro\" sections.",
+      "matcher": "\\.kiro/specs/",
+      "action": {
+        "type": "agent",
+        "prompt": "A file under .kiro/specs/ just changed. Remind the user to update the \"Architecture\" and \"How we built it in Kiro\" sections of README.md so they stay in sync with the spec change. Point out specifically what in those sections may now be stale given the spec edit."
+      }
+    }
+  ]
+}

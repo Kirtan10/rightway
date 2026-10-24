@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "honesty-guard",
+      "trigger": "PostFileSave",
+      "description": "On save of any file in frontend/, README.md, or docs/, run an honesty check against product.md's required copy and metrics rule.",
+      "matcher": "(^|/)(frontend/|README\\.md$|docs/)",
+      "action": {
+        "type": "agent",
+        "prompt": "Check the saved file against .kiro/steering/product.md 'Required UI and docs copy' and the metrics rule. Flag any claim of real or public training recordings, real or AIS vessel data, real-world accuracy, metrics shown without 'on synthetic validation data', confidence shown as a percentage, or hard-coded statistics or confidence values. Quote each offending line with a compliant replacement. If clean, reply 'Honesty check passed'."
+      }
+    }
+  ]
+}
