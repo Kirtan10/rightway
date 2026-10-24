@@ -6,8 +6,8 @@ Contract (see .kiro/steering/structure.md):
 
 Behavior:
   * Lazily loads ml/model.pt on first use.
-  * If ml/model.pt is missing, returns 0.93 (a stand-in confidence so the
-    rest of the system is runnable before a model is trained).
+  * If ml/model.pt is missing or fails to load, raises a clear RuntimeError
+    naming the model path.
   * Raises a clear error if the wav file is missing.
 
 Run:
@@ -20,7 +20,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MODEL_PATH = ROOT / "model.pt"
-MISSING_MODEL_CONFIDENCE = 0.93
 
 # Cached (model, device) once loaded.
 _MODEL = None
@@ -38,24 +37,33 @@ def _pick_device():
 
 
 def _load_model():
-    """Lazy-load the trained CNN. Returns (model, device) or (None, None)."""
+    """Lazy-load the trained CNN. Returns (model, device).
+
+    Raises RuntimeError if the model weights are missing or fail to load.
+    """
     global _MODEL, _DEVICE
     if _MODEL is not None:
         return _MODEL, _DEVICE
     if not MODEL_PATH.exists():
-        return None, None
+        raise RuntimeError(
+            f"Trained model weights not found: {MODEL_PATH}. "
+            "Train a model first (python -m ml.train)."
+        )
 
     import torch
 
     from .model import UpCallCNN
 
     device = _pick_device()
-    ckpt = torch.load(MODEL_PATH, map_location=device)
-    n_mels = int(ckpt.get("n_mels", 48))
-    model = UpCallCNN(n_mels=n_mels)
-    model.load_state_dict(ckpt["state_dict"])
-    model.to(device)
-    model.eval()
+    try:
+        ckpt = torch.load(MODEL_PATH, map_location=device)
+        n_mels = int(ckpt.get("n_mels", 48))
+        model = UpCallCNN(n_mels=n_mels)
+        model.load_state_dict(ckpt["state_dict"])
+        model.to(device)
+        model.eval()
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load model weights from {MODEL_PATH}: {exc}") from exc
     _MODEL, _DEVICE = model, device
     return _MODEL, _DEVICE
 
@@ -67,9 +75,6 @@ def predict(wav_path: str) -> float:
         raise FileNotFoundError(f"Audio file not found: {wav_path}")
 
     model, device = _load_model()
-    if model is None:
-        # No trained model yet: return the stand-in confidence.
-        return MISSING_MODEL_CONFIDENCE
 
     import torch
 

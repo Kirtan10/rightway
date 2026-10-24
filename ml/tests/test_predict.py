@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from ml import predict as predict_mod
 from ml.predict import predict
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,3 +37,17 @@ def test_missing_file_raises_clear_error():
     with pytest.raises(FileNotFoundError) as exc:
         predict(missing)
     assert "not found" in str(exc.value).lower()
+
+
+def test_missing_model_raises_runtime_error_naming_path(monkeypatch):
+    """When model weights are absent, predict() must raise a clear RuntimeError
+    that names the model path, with no silent stand-in fallback."""
+    bogus = ROOT / "model_does_not_exist_zzz.pt"
+    monkeypatch.setattr(predict_mod, "MODEL_PATH", bogus)
+    # Reset the lazy-load cache so _load_model re-evaluates MODEL_PATH.
+    monkeypatch.setattr(predict_mod, "_MODEL", None)
+    monkeypatch.setattr(predict_mod, "_DEVICE", None)
+
+    with pytest.raises(RuntimeError) as exc:
+        predict(str(_any_wav()))
+    assert str(bogus) in str(exc.value)
