@@ -7,7 +7,7 @@ issues a 10 nm slow zone, shows simulated ship responses, and generates an AI
 brief for harbor authorities.
 
 - **Live demo:** http://<EC2-ELASTIC-IP>:8000/
-- **Demo video:** <YOUTUBE-LINK>
+- **Demo video:** https://youtu.be/CPQtlCxl3ds
 - **Track:** Climate Tech & Clean Energy
 
 ## Problem
@@ -232,5 +232,5 @@ Deployment target (placeholder):
 
 ## Team
 
-- Kirtan Patel — ML + AI owner.
-- Bhoomika — simulation + app owner.
+- Kirtan Patel 
+- Bhoomika Monthy Rajashekar 
