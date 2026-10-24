@@ -18,10 +18,11 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import brief as brief_module
-from .sim import ML_DIR, Simulation, resolve_wav
+from .sim import ML_DIR, ROOT, Simulation, resolve_wav
 
 app = FastAPI(title="RightWay backend")
 
@@ -169,3 +170,9 @@ def get_static(filename: str) -> FileResponse:
     if not target.exists():
         raise HTTPException(status_code=404, detail="not found")
     return FileResponse(target)
+
+
+# Serve the frontend for single-server hosting. Mounted at "/" AFTER every API
+# route so the specific routes above take precedence; html=True serves
+# index.html at "/".
+app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
