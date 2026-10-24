@@ -1,4 +1,4 @@
-"""Train a simple up-call vs. noise classifier.
+"""Train an up-call vs. noise classifier (CNN) with a logistic baseline.
 
 The data loader auto-detects the dataset layout and uses whichever exists:
 
@@ -14,16 +14,20 @@ The data loader auto-detects the dataset layout and uses whichever exists:
 
 If both exist, the Kaggle layout is preferred (set PREFER=... to override).
 
-This trains a small logistic-regression / MLP model on simple spectral
-features. It is intentionally lightweight and dependency-minimal.
+Training:
+  * Features: log-mel spectrogram (see ml/features.py).
+  * A small CNN (ml/model.py) is the primary model.
+  * The original logistic-regression model is kept as run_baseline().
+  * Best model -> ml/model.pt, metrics -> ml/metrics.json.
 
 Run:
-    python ml/train.py
+    python -m ml.train
 """
 
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,8 +35,16 @@ import numpy as np
 import soundfile as sf
 
 ROOT = Path(__file__).resolve().parent
+REPO_ROOT = ROOT.parent
 SAMPLE_RATE = 2000
 AUDIO_EXTS = (".wav", ".aiff", ".aif", ".flac", ".ogg")
+
+MAX_CLIPS = 4000
+EPOCHS = 6
+BATCH_SIZE = 64
+SEED = 42
+MODEL_PATH = ROOT / "model.pt"
+METRICS_PATH = ROOT / "metrics.json"
 
 # Which layout to prefer when more than one is present: "kaggle" or "synthetic".
 PREFER = "kaggle"
@@ -213,9 +225,9 @@ def build_matrix(ds: Dataset) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(feats, dtype=np.float32), np.asarray(labels, dtype=np.int64)
 
 
-# --- Model (logistic regression via gradient descent) -------------------------
+# --- Baseline model (logistic regression via gradient descent) ----------------
 
-def train_logreg(X: np.ndarray, y: np.ndarray, epochs: int = 300, lr: float = 0.1):
+def _train_logreg(X: np.ndarray, y: np.ndarray, epochs: int = 300, lr: float = 0.1):
     mu, sigma = X.mean(0), X.std(0) + 1e-8
     Xn = (X - mu) / sigma
     n, d = Xn.shape
@@ -231,36 +243,167 @@ def train_logreg(X: np.ndarray, y: np.ndarray, epochs: int = 300, lr: float = 0.
     return (w, b, mu, sigma)
 
 
-def predict(model, X: np.ndarray) -> np.ndarray:
+def _logreg_proba(model, X: np.ndarray) -> np.ndarray:
     w, b, mu, sigma = model
     Xn = (X - mu) / sigma
-    p = 1.0 / (1.0 + np.exp(-(Xn @ w + b)))
-    return p
+    return 1.0 / (1.0 + np.exp(-(Xn @ w + b)))
+
+
+def run_baseline(ds: "Dataset", tr: np.ndarray, te: np.ndarray) -> float:
+    """Original logistic-regression baseline on compact spectral features.
+
+    `tr` and `te` are index arrays into ds.samples so the baseline uses the
+    same stratified split as the CNN. Returns held-out accuracy.
+    """
+    X, y = build_matrix(ds)
+    # build_matrix may skip unreadable files; align indices defensively.
+    n = min(len(X), len(ds.samples))
+    tr = tr[tr < n]
+    te = te[te < n]
+    if len(tr) == 0 or len(te) == 0:
+        return float("nan")
+    model = _train_logreg(X[tr], y[tr].astype(np.float64))
+    pred = (_logreg_proba(model, X[te]) >= 0.5).astype(int)
+    return float(np.mean(pred == y[te]))
+
+
+# --- CNN training -------------------------------------------------------------
+
+def _pick_device():
+    import torch
+
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def _stratified_split(labels: np.ndarray, seed: int = SEED, frac: float = 0.8):
+    """Return (train_idx, val_idx) preserving class balance."""
+    rng = np.random.default_rng(seed)
+    tr, va = [], []
+    for cls in np.unique(labels):
+        idx = np.where(labels == cls)[0]
+        rng.shuffle(idx)
+        cut = int(round(frac * len(idx)))
+        tr.append(idx[:cut])
+        va.append(idx[cut:])
+    tr = np.concatenate(tr)
+    va = np.concatenate(va)
+    rng.shuffle(tr)
+    rng.shuffle(va)
+    return tr, va
+
+
+def _build_spectrograms(ds: "Dataset") -> tuple[np.ndarray, np.ndarray]:
+    """Compute the log-mel spectrogram for every sample."""
+    from .features import features_from_path
+
+    feats, labels = [], []
+    for s in ds.samples:
+        try:
+            feats.append(features_from_path(s.path))
+            labels.append(s.label)
+        except Exception as exc:
+            print(f"  warning: could not read {s.path.name}: {exc}")
+    X = np.stack(feats).astype(np.float32)  # (N, n_mels, frames)
+    y = np.asarray(labels, dtype=np.int64)
+    return X, y
 
 
 def main() -> None:
+    import torch
+    from sklearn.metrics import roc_auc_score
+
+    from .model import UpCallCNN
+
+    torch.manual_seed(SEED)
+    np.random.seed(SEED)
+
     ds = discover_dataset()
-    print(f"Detected '{ds.layout}' layout at: {ds.root}")
+    # Cap the number of clips (stratified) at MAX_CLIPS.
+    if len(ds.samples) > MAX_CLIPS:
+        labels_all = np.array([s.label for s in ds.samples])
+        keep, _ = _stratified_split(labels_all, seed=SEED, frac=MAX_CLIPS / len(labels_all))
+        keep = np.sort(keep[:MAX_CLIPS])
+        ds.samples = [ds.samples[i] for i in keep]
+
     n_pos = sum(1 for s in ds.samples if s.label == 1)
+    print(f"Detected '{ds.layout}' layout at: {ds.root}")
     print(f"  samples: {len(ds)} (label 1: {n_pos}, label 0: {len(ds) - n_pos})")
 
-    print("Extracting features...")
-    X, y = build_matrix(ds)
-    if len(X) == 0:
-        raise RuntimeError("No readable audio samples found.")
+    print("Extracting log-mel spectrograms...")
+    X, y = _build_spectrograms(ds)
+    tr, va = _stratified_split(y, seed=SEED)
 
-    rng = np.random.default_rng(42)
-    idx = rng.permutation(len(X))
-    split = int(0.8 * len(X))
-    tr, te = idx[:split], idx[split:]
+    device = _pick_device()
+    print(f"Device: {device}")
 
-    print(f"Training logistic regression on {len(tr)} samples...")
-    model = train_logreg(X[tr], y[tr].astype(np.float64))
+    Xt = torch.from_numpy(X).unsqueeze(1)  # (N, 1, mel, frames)
+    yt = torch.from_numpy(y).float()
 
-    p_te = predict(model, X[te])
-    pred = (p_te >= 0.5).astype(int)
-    acc = float(np.mean(pred == y[te])) if len(te) else float("nan")
-    print(f"Held-out accuracy ({len(te)} samples): {acc:.3f}")
+    train_ds = torch.utils.data.TensorDataset(Xt[tr], yt[tr])
+    train_loader = torch.utils.data.DataLoader(
+        train_ds, batch_size=BATCH_SIZE, shuffle=True
+    )
+    Xva = Xt[va].to(device)
+    yva = y[va]
+
+    model = UpCallCNN(n_mels=X.shape[1]).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    loss_fn = torch.nn.BCEWithLogitsLoss()
+
+    best_auc = -1.0
+    best_acc = 0.0
+    history = []
+    for epoch in range(1, EPOCHS + 1):
+        model.train()
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            opt.zero_grad()
+            loss = loss_fn(model(xb), yb)
+            loss.backward()
+            opt.step()
+
+        model.eval()
+        with torch.no_grad():
+            logits = model(Xva)
+            probs = torch.sigmoid(logits).cpu().numpy()
+        preds = (probs >= 0.5).astype(int)
+        acc = float(np.mean(preds == yva))
+        auc = float(roc_auc_score(yva, probs)) if len(np.unique(yva)) > 1 else float("nan")
+        history.append({"epoch": epoch, "val_acc": acc, "val_auc": auc})
+        print(f"epoch {epoch}/{EPOCHS}  val_acc={acc:.4f}  val_auc={auc:.4f}")
+
+        if auc > best_auc or (np.isnan(auc) and acc > best_acc):
+            best_auc, best_acc = auc, acc
+            torch.save(
+                {
+                    "state_dict": model.state_dict(),
+                    "n_mels": int(X.shape[1]),
+                },
+                MODEL_PATH,
+            )
+
+    # Logistic-regression baseline on the same split.
+    print("Running logistic-regression baseline...")
+    baseline_acc = run_baseline(ds, tr, va)
+    print(f"baseline val_acc={baseline_acc:.4f}")
+
+    metrics = {
+        "data": ds.layout,
+        "n_samples": len(ds),
+        "epochs": EPOCHS,
+        "best_val_acc": best_acc,
+        "best_val_auc": best_auc,
+        "baseline_acc": baseline_acc,
+        "history": history,
+        "model_path": MODEL_PATH.relative_to(REPO_ROOT).as_posix(),
+    }
+    METRICS_PATH.write_text(json.dumps(metrics, indent=2))
+    print(f"Saved best model -> {MODEL_PATH}")
+    print(f"Saved metrics    -> {METRICS_PATH}")
 
 
 if __name__ == "__main__":
