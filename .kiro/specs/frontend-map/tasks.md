@@ -19,3 +19,9 @@
 
 - [ ] 4. Manual verification checklist with the backend running on :8000.
       _R1–R9_
+
+- [x] 5. Keep Simulate disabled from detection start until Reset (not just the
+      10 s polling window); on a 409 from `/detections`, show its detail in the
+      spectrogram card and keep Simulate disabled. Hide the "Stellwagen Bank
+      sanctuary" label while zoomed into the zone and show it again after Reset.
+      _R8, R9, R10_

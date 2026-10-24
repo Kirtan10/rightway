@@ -196,6 +196,10 @@ class Simulation:
             "simulated": True,
         }
 
+    def has_active_detection(self) -> bool:
+        """True if a detection is active (and not yet cleared by reset)."""
+        return self._detection is not None
+
     # --- writes ------------------------------------------------------------
 
     def create_detection(self, hydrophone_id: str, confidence: float) -> dict[str, Any]:

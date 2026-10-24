@@ -81,3 +81,9 @@ THE SYSTEM SHALL serve `ml/demo_spectrogram.png`, `ml/demo_spectrogram.json`,
 ### R12 — predict() failure -> 503
 IF `predict()` raises THEN THE SYSTEM SHALL return HTTP 503 with the error
 message and SHALL NOT invent a score.
+
+### R13 — One active detection at a time
+IF a detection is already active THEN `POST /detections` SHALL return HTTP 409
+with detail "A detection is already active. Reset first." and SHALL change
+nothing (no model call, no state change). A `POST /reset` clears the active
+detection so a new detection is allowed again.

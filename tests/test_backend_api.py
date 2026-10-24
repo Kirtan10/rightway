@@ -88,6 +88,20 @@ def test_detection_response_shape_and_flags(client: TestClient):
         assert set(v) == {"id", "name", "speed_before"}
 
 
+def test_second_detection_without_reset_returns_409(client: TestClient):
+    first = client.post("/detections", json={"hydrophone_id": "H-2"})
+    assert first.status_code == 200
+
+    second = client.post("/detections", json={"hydrophone_id": "H-2"})
+    assert second.status_code == 409
+    assert second.json()["detail"] == "A detection is already active. Reset first."
+
+    # The second POST changed nothing: still 1 detection and 4 alerts.
+    stats = client.get("/stats").json()
+    assert stats["detections"] == 1
+    assert stats["alerts_sent"] == 4
+
+
 def test_response_after_delay_and_75pct_compliance(client: TestClient, clock: FakeClock):
     client.post("/detections", json={"hydrophone_id": "H-2"})
 

@@ -242,7 +242,11 @@ function drawBaseMap() {
   });
   // Label on the RIGHT side of the oval so it never sits behind the top-right
   // Simulate/Reset buttons.
-  placeDivLabel(42.42, -70.05, "Stellwagen Bank sanctuary", "sanctuary-label");
+  // Kept in state so it can be hidden while zoomed into the zone (where it would
+  // clip against the right edge) and shown again after Reset.
+  state.sanctuaryLabel = placeDivLabel(
+    42.42, -70.05, "Stellwagen Bank sanctuary", "sanctuary-label",
+  );
 
   // Place labels. Boston sits west of H-1 (42.345, -70.930) on the mainland.
   placeDivLabel(42.40, -71.00, "Boston", "place-label city");
@@ -520,6 +524,13 @@ function clearZone() {
   }
 }
 
+// Hide the sanctuary label while zoomed into the zone (it clips at the right
+// edge there); show it again in the whole-bay view.
+function setSanctuaryLabelVisible(visible) {
+  const el = state.sanctuaryLabel && state.sanctuaryLabel.getElement();
+  if (el) el.style.display = visible ? "" : "none";
+}
+
 // ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
@@ -770,6 +781,7 @@ async function simulate() {
     });
     state.detection = detection;
     state.zoomMode = "zone";
+    setSanctuaryLabelVisible(false);
     drawZone(detection);
     setSpectrogramDetected();
     renderDetectionCard(detection);
@@ -780,6 +792,11 @@ async function simulate() {
   } catch (e) {
     // A 503 (or any failure) from /detections surfaces in the spectrogram card.
     showError("spec-error", `Detection failed: ${e.message}`);
+    if (e.status === 409) {
+      // A detection is already active server-side; keep Simulate disabled until
+      // Reset, and do not clear local detection state.
+      return;
+    }
     state.detection = null;
     $("simulate-btn").disabled = false;
   }
@@ -794,6 +811,7 @@ async function reset() {
   }
   state.detection = null;
   state.zoomMode = "idle";
+  setSanctuaryLabelVisible(true);
   clearZone();
   setSpectrogramIdle();
   setDetectionIdle();

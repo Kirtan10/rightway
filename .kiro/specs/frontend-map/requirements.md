@@ -56,11 +56,19 @@ WHEN "Simulate whale call" is pressed THE SYSTEM SHALL POST `/detections
 {"hydrophone_id":"H-2","wav":"ml/demo_upcall.wav"}`, draw the 10 nm zone as an
 amber dashed circle (`radius_nm * 1852` m), switch the spectrogram, play the
 demo audio (autoplay errors caught silently), show the confidence, poll
-`/vessels`, `/compliance`, `/stats` every 1 s for 10 s, and disable Simulate
-while a detection is active. "Reset" SHALL POST `/reset`, remove the circle, and
+`/vessels`, `/compliance`, `/stats` every 1 s for 10 s. Simulate SHALL stay
+disabled from the moment a detection starts until Reset is clicked (not only for
+the 10 s polling window). "Reset" SHALL POST `/reset`, remove the circle, and
 restore every card to idle.
 
 ### R9 — Errors and escaping
 IF a request fails THE SYSTEM SHALL show a short error in the relevant card (a
 `/detections` 503 detail in the spectrogram card) and never show a made-up
-value. All API-derived text SHALL be inserted with `textContent`.
+value. IF `POST /detections` returns HTTP 409 THE SYSTEM SHALL show its detail
+in the spectrogram card and keep Simulate disabled. All API-derived text SHALL
+be inserted with `textContent`.
+
+### R10 — Sanctuary label while zoomed
+WHILE zoomed into the detection zone THE SYSTEM SHALL hide the "Stellwagen Bank
+sanctuary" label (it clips at the right edge there) and SHALL show it again
+after Reset returns to the whole-bay view.

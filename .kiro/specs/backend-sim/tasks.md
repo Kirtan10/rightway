@@ -28,3 +28,10 @@
       as `{id,lat,lon,simulated:true}`, positions unchanged) and a test that it
       returns exactly H-1 to H-4 and H-2 matches the `/detections` zone center.
       _R6a_
+
+- [x] 7. Reject a second detection while one is active: add
+      `Simulation.has_active_detection()` and a 409 guard in `POST /detections`
+      (detail "A detection is already active. Reset first.", no model call, no
+      state change). Test: two POSTs in a row — the second is 409 and `/stats`
+      still shows 1 detection and 4 alerts.
+      _R13_

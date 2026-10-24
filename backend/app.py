@@ -64,6 +64,12 @@ def get_hydrophones() -> list[dict[str, Any]]:
 
 @app.post("/detections")
 def post_detection(req: DetectionRequest) -> dict[str, Any]:
+    # Only one active detection at a time; require a reset before the next.
+    if _sim().has_active_detection():
+        raise HTTPException(
+            status_code=409, detail="A detection is already active. Reset first."
+        )
+
     # Resolve + validate the wav path (only inside ml/).
     try:
         wav_path = resolve_wav(req.wav)
