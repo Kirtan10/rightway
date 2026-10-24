@@ -235,8 +235,9 @@ table.ctable td.num { font-family: var(--mono); }
 .leaflet-tooltip.hydrophone-label::before { display: none; }
 
 .hydrophone-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--teal);
-  box-shadow: 0 0 8px 3px rgba(94, 234, 212, 0.55);
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #5eead4; border: 2px solid #2bb3a0;
+  box-shadow: 0 0 10px 4px rgba(94, 234, 212, 0.6);
 }
 
 .place-label {

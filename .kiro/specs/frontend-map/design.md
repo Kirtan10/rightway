@@ -51,40 +51,47 @@ layer is removed. Scroll-wheel zoom and dragging are disabled and zoom controls
 hidden. The map fills the full width of its card (`#map { width: 100% }`). The
 water background is a navy gradient (`#0a1e33` -> `#081626`).
 
-Framing: `fitToMarkers()` fits the view to the live vessel + hydrophone points
-(from `/vessels` and `/hydrophones`) with ~15% padding on each axis, so the
-action fills the card while the padding keeps the coastline visible at the left
-edge. It runs after vessels render, after hydrophones load, on returning to the
-Live bay tab, and on window `resize` (debounced). A fallback bounds is used only
-until the first data arrives.
+Framing: `fitView()` fits the map to fixed `VIEW_BOUNDS` (41.62–42.62 N,
+71.10–69.92 W) so Boston, Plymouth, Cape Cod Bay and the whole Cape (to
+Provincetown and Chatham) are always visible — the view no longer tightens to
+the markers. `fitView()` runs after vessels render, after hydrophones load, on
+returning to the Live bay tab, and on window `resize` (debounced).
 
-Base layers drawn once on load (`drawBaseMap()`): a smoother approximate
-coastline `L.polygon` (~70 points, `smoothFactor: 1.5`) running Cape Ann ->
-Boston Harbor/Hull -> South Shore -> Plymouth -> Cape Cod Canal -> the Cape's
-arm east to Chatham -> up the outer Cape -> the Provincetown hook curling back
-west; fill `#0f2a22` @ 0.9, stroke `#2f6b4f` 1.5px. The mainland edge is kept
-west of the vessels (Mystic @ lon -71.00) and the Cape arm south/east of them,
-so land never covers a vessel or hydrophone. Also: 3 faint graticule curves
-(`#ffffff` @ 0.04); a shipping-lane band (fill `#5eead4` @ 0.10, dashed
-centerline @ 0.35, "Boston shipping lane" label placed on the band at the west
-end, away from the vessel cluster); a dashed Stellwagen Bank sanctuary ellipse
-(`#5eead4` @ 0.35) with its label near the BOTTOM of the ellipse so it stays
-clear of the top-right buttons; and place labels (`L.divIcon`): "Boston" (white
-bold, placed west of H-1), "Plymouth"/"Cape Cod Bay"/"Cape Cod" (soft green).
+Base layers drawn once on load (`drawBaseMap()`): an approximate coastline
+`L.polygon` (~60 points, `smoothFactor: 1.5`) running Cape Ann -> Boston
+Harbor/Hull -> South Shore -> Plymouth -> Cape Cod Canal -> the Cape's arm east
+to Chatham -> up the outer Cape -> the Provincetown hook curling back west; fill
+`#0f2a22` @ 0.9, stroke `#2f6b4f` 1.5px. The mainland edge is kept west of the
+vessels (Mystic @ lon -71.00) and the Cape arm south/east of them, so land never
+covers a vessel or hydrophone. The polygon is closed with two points far
+outside the view (`~ -71.40` lon, beyond the lat bounds) so no straight vertical
+closing edge is visible. Also: 3 faint graticule curves (`#ffffff` @ 0.04); a
+shipping-lane band (fill `#5eead4` @ 0.10, dashed centerline @ 0.35) with the
+"Boston shipping lane" label at the EAST end (~42.29, -70.32, beyond Orion Bay)
+so it never touches a vessel label; a dashed Stellwagen Bank sanctuary ellipse
+centered ~(42.42, -70.33) with lat radius 0.33 / lon radius 0.22 (east of the
+cluster, outline only so it does not swallow the lane), its label placed just
+inside the TOP of the oval (below the Simulate/Reset buttons); and place labels
+(`L.divIcon`): "Boston" (white bold, west of H-1), "Plymouth" (~41.96, -70.72,
+on land), "Cape Cod Bay" (~41.88, -70.35, inside the bay), "Cape Cod"
+(~41.75, -70.05, on the Cape) in soft green.
 
 Vessels are `L.marker` with an SVG pointed-hull `divIcon` (~22x8). The hull
 points right (east) at 0°, so it is rotated by `heading - 90` (heading 90 ->
 0°, points right). Colored by status (normal `#e2e8f0`, alerted `#f59e0b`,
 complying `#22c55e`, not_complying `#ef4444`), each with a permanent 11px
-monospace "Name NN kn" tooltip with a dark text-shadow. Hydrophones are glowing
-teal dots with monospace teal labels. The slow zone is an `L.circle` (amber,
+monospace "Name NN kn" tooltip (dark text-shadow) offset at least 14 px from the
+icon center so a label never covers its own icon (Blue Fin II uses "left").
+Hydrophones are teal dots (12px, full-opacity `#5eead4`, 2px `#2bb3a0` border,
+soft glow) with monospace teal labels. The slow zone is an `L.circle` (amber,
 dashed, faint fill) with radius `radius_nm * 1852` meters.
 
 Label de-overlap: `deOverlapLabels()` runs after each render (and refit). It
-measures every vessel label's bounding box; hydrophone labels are fixed
-obstacles. Any vessel label overlapping an already-placed label (or a
-hydrophone label) is rebound through a sequence of candidate placements
-(right/left/top/bottom offsets) until it no longer collides.
+measures every vessel label's bounding box; fixed obstacles that are never moved
+are the hydrophone labels, the place labels, the lane label and the sanctuary
+label. Any vessel label overlapping an already-placed or fixed label is rebound
+through a sequence of candidate placements (all >= 14 px offsets) until it no
+longer collides.
 
 ## State and polling
 

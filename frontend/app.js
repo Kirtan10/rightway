@@ -14,18 +14,20 @@ const STATUS_COLORS = {
 
 // Per-vessel tooltip placement so permanent labels don't overlap at fit zoom.
 // Keyed by vessel id; direction + pixel offset spread the labels around.
+// Offsets are at least 14 px from the icon center so a label never covers its
+// own icon.
 const LABEL_PLACEMENT = {
-  "V-1": { direction: "left", offset: [-10, 0] },   // Mystic (west)
-  "V-2": { direction: "right", offset: [10, 0] },   // Atlantic Star (far east)
-  "V-3": { direction: "bottom", offset: [0, 10] },  // Orion Bay (far east)
-  "V-4": { direction: "bottom", offset: [0, 12] },  // Blue Fin II (cluster)
-  "V-5": { direction: "top", offset: [0, -12] },    // Nordic Tide (cluster)
-  "V-6": { direction: "left", offset: [-12, 6] },   // Harbor Queen (cluster)
-  "V-7": { direction: "right", offset: [12, 0] },   // Cape Runner (cluster)
-  "V-8": { direction: "top", offset: [0, -10] },    // Sea Ledger (north)
-  "V-9": { direction: "bottom", offset: [0, 10] },  // Gull Point (south)
+  "V-1": { direction: "left", offset: [-14, 0] },   // Mystic (west)
+  "V-2": { direction: "right", offset: [14, 0] },   // Atlantic Star (far east)
+  "V-3": { direction: "bottom", offset: [0, 14] },  // Orion Bay (far east)
+  "V-4": { direction: "left", offset: [-14, 0] },   // Blue Fin II (cluster)
+  "V-5": { direction: "top", offset: [0, -14] },    // Nordic Tide (cluster)
+  "V-6": { direction: "left", offset: [-14, 8] },   // Harbor Queen (cluster)
+  "V-7": { direction: "right", offset: [14, 0] },   // Cape Runner (cluster)
+  "V-8": { direction: "top", offset: [0, -14] },    // Sea Ledger (north)
+  "V-9": { direction: "bottom", offset: [0, 14] },  // Gull Point (south)
 };
-const DEFAULT_PLACEMENT = { direction: "top", offset: [0, -10] };
+const DEFAULT_PLACEMENT = { direction: "top", offset: [0, -14] };
 
 const STATIC = {
   demo: `${API}/static/demo_spectrogram.png`,
@@ -91,10 +93,10 @@ const map = L.map("map", {
   touchZoom: false,
 });
 
-// The view is fit to the live markers (see fitToMarkers); this is a fallback
-// until /vessels + /hydrophones load.
-const FALLBACK_BOUNDS = L.latLngBounds([42.0, -71.05], [42.62, -70.25]);
-map.fitBounds(FALLBACK_BOUNDS);
+// Fixed view bounds so Boston, Plymouth, Cape Cod Bay and the whole Cape
+// (Provincetown and Chatham) are always visible.
+const VIEW_BOUNDS = L.latLngBounds([41.62, -71.1], [42.62, -69.92]);
+map.fitBounds(VIEW_BOUNDS);
 
 // Approximate Massachusetts coastline (schematic, ~70 points). Mainland edge is
 // kept west of the vessels (Mystic is at lon -71.00); the Cape's arm runs south
@@ -163,10 +165,10 @@ const COASTLINE = [
   [41.83, -70.40],
   [41.80, -70.50],
   [41.79, -70.58],
-  // Close the polygon well off-map to the south and west so only the
-  // intended shore shows inside the view.
-  [41.70, -71.20],
-  [42.70, -71.20],
+  // Close the polygon well outside the visible area (west of the -71.10 view
+  // edge and beyond the lat bounds) so no closing edge shows inside the view.
+  [41.40, -71.40],
+  [42.80, -71.40],
 ];
 
 function drawBaseMap() {
@@ -213,14 +215,17 @@ function drawBaseMap() {
     dashArray: "5 7",
     interactive: false,
   }).addTo(map);
-  // Lane label on the band, west end (away from the vessel cluster to the east).
-  placeDivLabel(42.355 + halfWidthDeg + 0.015, -70.86, "Boston shipping lane", "lane-label");
+  // Lane label at the EAST end of the band, beyond Orion Bay (-70.34), so it
+  // never touches a vessel label.
+  placeDivLabel(42.29, -70.32, "Boston shipping lane", "lane-label");
 
-  // Stellwagen Bank sanctuary: dashed teal ellipse outline (no fill).
+  // Stellwagen Bank sanctuary: dashed teal ellipse outline (no fill), centered
+  // over the bank and east of the vessel cluster so it doesn't swallow the lane.
   const sancLat = 42.42;
   const sancLon = -70.33;
-  const sancRLat = 0.3;
-  placeEllipse(sancLat, sancLon, sancRLat, 0.2, {
+  const sancRLat = 0.33;
+  const sancRLon = 0.22;
+  placeEllipse(sancLat, sancLon, sancRLat, sancRLon, {
     color: "#5eead4",
     opacity: 0.35,
     weight: 1.5,
@@ -228,14 +233,14 @@ function drawBaseMap() {
     fill: false,
     interactive: false,
   });
-  // Label near the BOTTOM of the ellipse so it stays clear of the top-right buttons.
-  placeDivLabel(sancLat - sancRLat - 0.03, sancLon, "Stellwagen Bank sanctuary", "sanctuary-label");
+  // Label just inside the TOP of the oval (below the Simulate/Reset buttons).
+  placeDivLabel(sancLat + sancRLat - 0.05, sancLon, "Stellwagen Bank sanctuary", "sanctuary-label");
 
   // Place labels. Boston sits west of H-1 (42.345, -70.930) on the mainland.
   placeDivLabel(42.40, -71.00, "Boston", "place-label city");
-  placeDivLabel(42.04, -70.74, "Plymouth", "place-label area");
-  placeDivLabel(42.14, -70.42, "Cape Cod Bay", "place-label area");
-  placeDivLabel(41.80, -70.30, "Cape Cod", "place-label area");
+  placeDivLabel(41.96, -70.72, "Plymouth", "place-label area");
+  placeDivLabel(41.88, -70.35, "Cape Cod Bay", "place-label area");
+  placeDivLabel(41.75, -70.05, "Cape Cod", "place-label area");
 }
 
 function placeEllipse(lat, lon, rLat, rLon, style) {
@@ -256,6 +261,9 @@ function placeDivLabel(lat, lon, text, className) {
   const el = marker.getElement();
   if (el) el.textContent = text;
   else marker.once("add", () => { marker.getElement().textContent = text; });
+  // Remember map labels (place/lane/sanctuary) as fixed obstacles for de-overlap.
+  (state.fixedLabelMarkers = state.fixedLabelMarkers || []).push(marker);
+  return marker;
 }
 
 // Pointed-hull ship icon (~22x8). The hull points RIGHT (east) at 0deg, so a
@@ -299,37 +307,26 @@ function renderVessels(vessels) {
   }
 
   state.lastVessels = vessels;
-  fitToMarkers();
+  fitView();
   // Let Leaflet lay out the tooltips, then nudge any that overlap.
   requestAnimationFrame(() => deOverlapLabels());
 }
 
-// Fit the view to vessels + hydrophones with ~15% padding, so the action fills
-// the card. The left edge keeps some coastline visible via the padding.
-function fitToMarkers() {
-  const pts = [];
-  for (const v of state.lastVessels || []) pts.push([v.lat, v.lon]);
-  for (const h of state.hydrophones || []) pts.push([h.lat, h.lon]);
-  if (!pts.length) return;
-  const bounds = L.latLngBounds(pts);
-  // 15% padding relative to the span on each axis.
-  const latPad = (bounds.getNorth() - bounds.getSouth()) * 0.15 || 0.05;
-  const lonPad = (bounds.getEast() - bounds.getWest()) * 0.15 || 0.05;
-  const padded = L.latLngBounds(
-    [bounds.getSouth() - latPad, bounds.getWest() - lonPad],
-    [bounds.getNorth() + latPad, bounds.getEast() + lonPad],
-  );
-  map.fitBounds(padded, { animate: false });
+// Fit the map to the fixed VIEW_BOUNDS (Boston -> whole Cape). Called on
+// render, on resize, and on returning to the Live bay tab.
+function fitView() {
+  map.fitBounds(VIEW_BOUNDS, { animate: false });
 }
 
 // Candidate tooltip placements to try, in order, when a label overlaps another.
+// All offsets are >= 14 px so a nudged label still clears its own icon.
 const LABEL_TRIES = [
-  { direction: "right", offset: [12, 0] },
-  { direction: "left", offset: [-12, 0] },
-  { direction: "top", offset: [0, -12] },
-  { direction: "bottom", offset: [0, 12] },
-  { direction: "right", offset: [12, -16] },
-  { direction: "left", offset: [-12, 16] },
+  { direction: "right", offset: [14, 0] },
+  { direction: "left", offset: [-14, 0] },
+  { direction: "top", offset: [0, -14] },
+  { direction: "bottom", offset: [0, 14] },
+  { direction: "right", offset: [14, -18] },
+  { direction: "left", offset: [-14, 18] },
 ];
 
 function rectsOverlap(a, b) {
@@ -353,15 +350,21 @@ function rebindLabel(marker, direction, offset) {
 }
 
 // After markers render, measure label bounding boxes and nudge overlapping ones
-// (including any overlapping a hydrophone label) by cycling through LABEL_TRIES.
+// by cycling through LABEL_TRIES. Fixed obstacles (not moved): hydrophone
+// labels, place labels, the lane label and the sanctuary label.
 function deOverlapLabels() {
   const markers = state.vesselMarkers || [];
 
-  // Fixed obstacles: hydrophone labels keep their place.
   const occupied = [];
+  // Hydrophone labels are tooltip-based.
   for (const m of state.hydrophoneMarkers || []) {
     const r = labelRect(m);
     if (r) occupied.push(r);
+  }
+  // Place / lane / sanctuary labels are element-based divIcons.
+  for (const m of state.fixedLabelMarkers || []) {
+    const el = m.getElement();
+    if (el) occupied.push(el.getBoundingClientRect());
   }
 
   for (const marker of markers) {
@@ -392,8 +395,8 @@ async function loadHydrophones() {
       const icon = L.divIcon({
         className: "",
         html: '<span class="hydrophone-dot"></span>',
-        iconSize: [8, 8],
-        iconAnchor: [4, 4],
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
       });
       const marker = L.marker([h.lat, h.lon], { icon, keyboard: false });
       marker.bindTooltip(h.id, {
@@ -405,8 +408,8 @@ async function loadHydrophones() {
       marker.addTo(state.hydrophoneLayer);
       state.hydrophoneMarkers.push(marker);
     }
-    // Now that hydrophone points exist, refit and re-run de-overlap.
-    fitToMarkers();
+    // Now that hydrophone markers exist, re-run de-overlap against them.
+    fitView();
     requestAnimationFrame(() => deOverlapLabels());
   } catch (e) {
     state.hydrophones = [];
@@ -730,10 +733,10 @@ function initTabs() {
       document.querySelector('[data-panel="compliance"]').hidden = which !== "compliance";
       if (which === "live") {
         // Leaflet needs a size recalculation when its panel was hidden; then
-        // re-fit to the markers and re-run label de-overlap at the real size.
+        // re-fit the view and re-run label de-overlap at the real size.
         setTimeout(() => {
           map.invalidateSize();
-          fitToMarkers();
+          fitView();
           requestAnimationFrame(() => deOverlapLabels());
         }, 50);
       }
@@ -747,7 +750,7 @@ window.addEventListener("resize", () => {
   if (resizeTimer) clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     map.invalidateSize();
-    fitToMarkers();
+    fitView();
     requestAnimationFrame(() => deOverlapLabels());
   }, 150);
 });
