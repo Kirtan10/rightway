@@ -181,7 +181,7 @@ def load_audio(path: Path, target_sr: int = SAMPLE_RATE) -> np.ndarray:
         x = x.mean(axis=1)
     if sr != target_sr and len(x) > 1:
         # Simple linear resample to the target rate.
-        n_out = int(round(len(x) * target_sr / sr))
+        n_out = round(len(x) * target_sr / sr)
         x = np.interp(
             np.linspace(0, len(x) - 1, n_out),
             np.arange(len(x)),
@@ -217,7 +217,7 @@ def build_matrix(ds: Dataset) -> tuple[np.ndarray, np.ndarray]:
     for s in ds.samples:
         try:
             x = load_audio(s.path)
-        except Exception as exc:  # skip unreadable files but keep going
+        except Exception as exc:  # noqa: BLE001 - skip unreadable files, keep training
             print(f"  warning: could not read {s.path.name}: {exc}")
             continue
         feats.append(extract_features(x))
@@ -249,7 +249,7 @@ def _logreg_proba(model, X: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-(Xn @ w + b)))
 
 
-def run_baseline(ds: "Dataset", tr: np.ndarray, te: np.ndarray) -> float:
+def run_baseline(ds: Dataset, tr: np.ndarray, te: np.ndarray) -> float:
     """Original logistic-regression baseline on compact spectral features.
 
     `tr` and `te` are index arrays into ds.samples so the baseline uses the
@@ -286,7 +286,7 @@ def _stratified_split(labels: np.ndarray, seed: int = SEED, frac: float = 0.8):
     for cls in np.unique(labels):
         idx = np.where(labels == cls)[0]
         rng.shuffle(idx)
-        cut = int(round(frac * len(idx)))
+        cut = round(frac * len(idx))
         tr.append(idx[:cut])
         va.append(idx[cut:])
     tr = np.concatenate(tr)
@@ -296,7 +296,7 @@ def _stratified_split(labels: np.ndarray, seed: int = SEED, frac: float = 0.8):
     return tr, va
 
 
-def _build_spectrograms(ds: "Dataset") -> tuple[np.ndarray, np.ndarray]:
+def _build_spectrograms(ds: Dataset) -> tuple[np.ndarray, np.ndarray]:
     """Compute the log-mel spectrogram for every sample."""
     from .features import features_from_path
 
@@ -305,7 +305,7 @@ def _build_spectrograms(ds: "Dataset") -> tuple[np.ndarray, np.ndarray]:
         try:
             feats.append(features_from_path(s.path))
             labels.append(s.label)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - skip unreadable files, keep training
             print(f"  warning: could not read {s.path.name}: {exc}")
     X = np.stack(feats).astype(np.float32)  # (N, n_mels, frames)
     y = np.asarray(labels, dtype=np.int64)

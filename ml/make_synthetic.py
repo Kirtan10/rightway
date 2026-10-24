@@ -26,7 +26,7 @@ from scipy.signal import butter, sosfilt
 SEED = 42
 SAMPLE_RATE = 2000            # Hz
 CLIP_SECONDS = 2.0
-N_SAMPLES = int(round(SAMPLE_RATE * CLIP_SECONDS))
+N_SAMPLES = round(SAMPLE_RATE * CLIP_SECONDS)
 N_CLIPS = 4000               # total clips; 50/50 split between labels
 SHIP_FRACTION = 0.40         # fraction of clips that also get a ship-like tone
 
@@ -113,7 +113,7 @@ def up_call(rng: np.random.Generator) -> tuple[np.ndarray, float]:
     region (used later for SNR scaling).
     """
     dur = rng.uniform(0.8, 1.2)
-    n_call = int(round(dur * SAMPLE_RATE))
+    n_call = round(dur * SAMPLE_RATE)
     n_call = min(n_call, N_SAMPLES)
     tc = np.arange(n_call) / SAMPLE_RATE
 
@@ -121,7 +121,7 @@ def up_call(rng: np.random.Generator) -> tuple[np.ndarray, float]:
     f_end = rng.uniform(150.0, 250.0)
     # Linear sweep. Instantaneous frequency goes f_start -> f_end.
     k = (f_end - f_start) / (n_call / SAMPLE_RATE)
-    inst_f = f_start + k * tc
+    # Phase is the integral of the instantaneous frequency sweep f_start -> f_end.
     phase = 2.0 * np.pi * (f_start * tc + 0.5 * k * tc ** 2)
 
     call = np.sin(phase)
@@ -168,8 +168,7 @@ def make_clip(label: int, rng: np.random.Generator) -> np.ndarray:
             # Mix at a target SNR (dB) relative to the current clip RMS.
             snr_db = rng.uniform(-8.0, 10.0)
             noise_rms = rms_of(clip)
-            if noise_rms < 1e-9:
-                noise_rms = 1e-9
+            noise_rms = max(noise_rms, 1e-9)
             target_call_rms = noise_rms * (10.0 ** (snr_db / 20.0))
             call = call * (target_call_rms / call_rms)
             clip = clip + call
