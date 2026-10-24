@@ -50,6 +50,7 @@ const state = {
   hydrophoneLayer: null, // L.layerGroup of hydrophone markers
   hydrophones: [], // [{id,lat,lon,simulated}] from GET /hydrophones
   zoomMode: "idle", // "idle" (whole bay) or "zone" (flown into a detection)
+  noticesSent: new Set(), // vessel ids whose compliance notice was copied/opened
 };
 
 // ---------------------------------------------------------------------------
@@ -616,6 +617,31 @@ function renderZoneList(detection, vessels) {
     right.style.gap = "10px";
     right.append(speed, chip);
 
+    // Non-complying vessels get a Contact action (or a "Notice sent" marker).
+    if (status === "not_complying") {
+      if (state.noticesSent.has(entry.id)) {
+        const sent = document.createElement("span");
+        sent.className = "notice-sent";
+        sent.textContent = "Notice sent (sim)";
+        right.append(sent);
+      } else {
+        const btn = document.createElement("button");
+        btn.className = "btn-contact";
+        btn.type = "button";
+        btn.textContent = "Contact";
+        // Capture the values this row needs; message is built from API data only.
+        btn.addEventListener("click", () =>
+          openNoticeModal({
+            id: entry.id,
+            name: entry.name,
+            before: entry.speed_before,
+            now,
+          }),
+        );
+        right.append(btn);
+      }
+    }
+
     row.append(name, right);
     host.append(row);
   }
@@ -628,6 +654,131 @@ function renderZoneIdle() {
   p.className = "hint";
   p.textContent = "No active slow zone. Press \u201CSimulate whale call\u201D.";
   host.append(p);
+}
+
+// ---------------------------------------------------------------------------
+// Compliance-notice modal (never sends anything automatically)
+// ---------------------------------------------------------------------------
+const SPEED_LIMIT_KN = 10;
+
+// Build the notice text from API data only (vessel, hydrophone, zone, speeds).
+function buildNoticeMessage(vessel) {
+  const det = state.detection || {};
+  const hydro = det.hydrophone_id || "the hydrophone";
+  const radius = det.zone ? det.zone.radius_nm : 10;
+  return [
+    `To the master of ${vessel.name},`,
+    "",
+    `Hydrophone ${hydro} has detected a likely North Atlantic right whale ` +
+      `up-call, and a ${radius} nm slow zone is in effect around it.`,
+    `Our records show ${vessel.name} at ${vessel.before} knots before the alert ` +
+      `and ${vessel.now} knots now, which is above the ${SPEED_LIMIT_KN}-knot limit ` +
+      "for the slow zone.",
+    `Please reduce speed to ${SPEED_LIMIT_KN} knots or less while transiting the ` +
+      "slow zone to reduce the risk of a vessel strike. Thank you for your cooperation.",
+    "",
+    "Simulated notice: RightWay demo data",
+  ].join("\n");
+}
+
+function buildNoticeSubject(vessel) {
+  return `Compliance notice: reduce to ${SPEED_LIMIT_KN} knots - ${vessel.name}`;
+}
+
+// Focus-trap state for the modal.
+const notice = { vessel: null, lastFocus: null, keyHandler: null };
+
+function openNoticeModal(vessel) {
+  notice.vessel = vessel;
+  notice.lastFocus = document.activeElement;
+
+  $("notice-title").textContent = `Compliance notice \u00B7 ${vessel.name}`;
+  $("notice-message").value = buildNoticeMessage(vessel);
+  $("notice-copied").hidden = true;
+
+  const overlay = $("notice-overlay");
+  overlay.hidden = false;
+
+  // Focus trap: keep Tab within the dialog; Esc closes.
+  notice.keyHandler = (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeNoticeModal();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = overlay.querySelectorAll(
+      'button, [href], textarea, input, [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener("keydown", notice.keyHandler, true);
+  $("notice-close").focus();
+}
+
+function closeNoticeModal() {
+  const overlay = $("notice-overlay");
+  overlay.hidden = true;
+  if (notice.keyHandler) {
+    document.removeEventListener("keydown", notice.keyHandler, true);
+    notice.keyHandler = null;
+  }
+  if (notice.lastFocus && typeof notice.lastFocus.focus === "function") {
+    notice.lastFocus.focus();
+  }
+  notice.vessel = null;
+}
+
+// Mark the vessel as notified (persists until Reset) and re-render.
+function markNoticeSent() {
+  if (!notice.vessel) return;
+  state.noticesSent.add(notice.vessel.id);
+  renderNoticesStat();
+  if (state.detection && state.lastVessels) {
+    renderZoneList(state.detection, state.lastVessels);
+  }
+}
+
+async function copyNotice() {
+  const text = $("notice-message").value;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_e) {
+    // Clipboard API unavailable/blocked: fall back to selecting the textarea.
+    const ta = $("notice-message");
+    ta.focus();
+    ta.select();
+  }
+  $("notice-copied").hidden = false;
+  markNoticeSent();
+}
+
+function openEmailDraft() {
+  if (!notice.vessel) return;
+  const subject = encodeURIComponent(buildNoticeSubject(notice.vessel));
+  const body = encodeURIComponent($("notice-message").value);
+  // No recipient address: opens a blank draft for the operator to address.
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  markNoticeSent();
+}
+
+function initNoticeModal() {
+  $("notice-close").addEventListener("click", closeNoticeModal);
+  $("notice-copy").addEventListener("click", copyNotice);
+  $("notice-email").addEventListener("click", openEmailDraft);
+  // Click on the backdrop (outside the dialog) closes.
+  $("notice-overlay").addEventListener("click", (e) => {
+    if (e.target === $("notice-overlay")) closeNoticeModal();
+  });
 }
 
 async function refreshBrief(responded) {
@@ -655,6 +806,12 @@ function renderStats(stats) {
   $("stat-alerts").textContent = String(stats.alerts_sent);
   $("stat-compliance").textContent =
     stats.compliance_pct == null ? "\u2014" : `${stats.compliance_pct}%`;
+  renderNoticesStat();
+}
+
+// The "Notices sent (sim)" count is a client-side tally (not a server stat).
+function renderNoticesStat() {
+  $("stat-notices").textContent = String(state.noticesSent.size);
 }
 
 function renderComplianceTab(data) {
@@ -811,6 +968,9 @@ async function reset() {
   }
   state.detection = null;
   state.zoomMode = "idle";
+  state.noticesSent.clear();
+  closeNoticeModal();
+  renderNoticesStat();
   setSanctuaryLabelVisible(true);
   clearZone();
   setSpectrogramIdle();
@@ -871,6 +1031,7 @@ map.on("moveend", () => {
 // ---------------------------------------------------------------------------
 function init() {
   initTabs();
+  initNoticeModal();
   $("simulate-btn").addEventListener("click", simulate);
   $("reset-btn").addEventListener("click", reset);
 

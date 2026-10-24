@@ -72,3 +72,18 @@ be inserted with `textContent`.
 WHILE zoomed into the detection zone THE SYSTEM SHALL hide the "Stellwagen Bank
 sanctuary" label (it clips at the right edge there) and SHALL show it again
 after Reset returns to the whole-bay view.
+
+### R11 — Contact vessel (compliance notice)
+THE SYSTEM SHALL show a small "Contact" button on each `not_complying` row in
+the "Vessels in the zone" card. WHEN pressed it SHALL open a modal titled
+"Compliance notice · <vessel name>" with a message built ONLY from API data —
+the vessel name, hydrophone, the 10 nm slow zone, the vessel's speed before and
+now, the 10-knot limit, and a polite request to slow to 10 knots or less — ending
+with the line "Simulated notice: RightWay demo data". The modal SHALL offer
+"Copy message" (clipboard, with a "Copied" confirmation) and "Open email draft"
+(a `mailto:` with URL-encoded subject and body and NO recipient address), and
+SHALL dismiss on Esc or a Close button. The dialog SHALL use `role="dialog"`,
+`aria-modal="true"`, be keyboard-focusable, and trap focus. After the notice is
+copied or opened, that vessel's row SHALL read "Notice sent (sim)" until Reset,
+and a "Notices sent (sim)" count under the stats SHALL increment; Reset SHALL
+clear it. THE SYSTEM SHALL never send anything automatically.

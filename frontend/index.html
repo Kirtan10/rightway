@@ -114,6 +114,7 @@
             <div class="stat"><span class="stat-num" id="stat-alerts">0</span><span class="stat-label">Alerts sent (sim)</span></div>
             <div class="stat"><span class="stat-num" id="stat-compliance">—</span><span class="stat-label">Compliance</span></div>
           </div>
+          <p class="stats-sub">Notices sent (sim): <span id="stat-notices">0</span></p>
           <p id="stats-error" class="error" hidden></p>
         </div>
       </div>
@@ -137,6 +138,29 @@
       </div>
     </section>
   </main>
+
+  <!-- Compliance-notice modal (hidden until a "Contact" button is pressed) -->
+  <div id="notice-overlay" class="modal-overlay" hidden>
+    <div
+      id="notice-dialog"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notice-title"
+    >
+      <div class="modal-head">
+        <h2 id="notice-title" class="modal-title"></h2>
+        <button id="notice-close" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <label for="notice-message" class="modal-label">Pre-filled notice (not sent automatically)</label>
+      <textarea id="notice-message" class="modal-message" rows="9" readonly></textarea>
+      <div class="modal-actions">
+        <button id="notice-copy" class="btn-primary">Copy message</button>
+        <button id="notice-email" class="btn-ghost">Open email draft</button>
+        <span id="notice-copied" class="modal-copied" hidden>Copied</span>
+      </div>
+    </div>
+  </div>
 
   <footer class="footer">
     Prototype: classifier trained on synthetic up-calls, not real-world accuracy.

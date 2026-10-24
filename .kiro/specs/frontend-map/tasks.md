@@ -25,3 +25,13 @@
       spectrogram card and keep Simulate disabled. Hide the "Stellwagen Bank
       sanctuary" label while zoomed into the zone and show it again after Reset.
       _R8, R9, R10_
+
+- [x] 6. Add the "Contact vessel" action: a "Contact" button on each
+      `not_complying` zone row opens an accessible modal (role=dialog,
+      aria-modal, focus trap, Esc/Close) with an API-data-only compliance notice
+      ending "Simulated notice: RightWay demo data"; "Copy message" (clipboard +
+      "Copied") and "Open email draft" (`mailto:` with URL-encoded subject/body,
+      no recipient). After copy/open, the row reads "Notice sent (sim)" and a
+      "Notices sent (sim)" count under the stats increments; Reset clears it.
+      Nothing is sent automatically.
+      _R11_
