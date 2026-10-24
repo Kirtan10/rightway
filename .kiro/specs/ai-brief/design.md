@@ -87,3 +87,19 @@ glued to a letter ("at75%") falls back; output missing the exact `75%`
 compliance figure falls back; the cached brief mentions "simulated" and
 "synthetic"; and `build_demo_input()` confidence equals the ML demo result.
 `backend/__init__.py` exists, so no conftest is added unless imports fail.
+
+## Property-based tests
+
+`tests/test_properties.py` (Hypothesis) adds randomized coverage for the brief
+output validation:
+
+- **R3 (fallback / honesty checks).** For random text, any string containing a
+  digit glued directly to a letter (e.g. "at75"), and any string containing
+  "->", is rejected by `_validation_failure` (i.e. it returns a non-None reason,
+  so `generate_brief_result` would fall back to the cache). The shipped
+  `backend/cache/brief.json` passes validation against the demo compliance from
+  `build_demo_input()`.
+
+"Rejected" is asserted as `_validation_failure(...) is not None`; the specific
+failing check may vary because the checks run in order and return the first
+failure. No property found a counterexample.

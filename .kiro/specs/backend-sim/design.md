@@ -78,3 +78,26 @@ clock: H-2 membership; detection shape/flags; response after advancing the
 clock; 75% compliance; `/stats` incrementing and `/reset` zeroing; `/brief`
 default source; 503 when `predict` is monkeypatched to raise; `/static`
 rejecting other filenames.
+
+## Property-based tests
+
+`tests/test_properties.py` (Hypothesis) adds randomized coverage for the
+simulation invariants:
+
+- **R3 (haversine metric).** `haversine_nm` is symmetric, non-negative, zero for
+  identical points, and obeys the triangle inequality, over random lat/lon in
+  Massachusetts Bay.
+- **R7 (compliance).** `compliance_pct` is in [0, 100] and equals
+  `complying / in-zone * 100`, and a vessel is "complying" iff its after-speed is
+  <= 10 kn — checked against the intended rule, against the real `RESPONSE_MAP`,
+  and against a live `Simulation.compliance()` output.
+- **R10 (reset idempotence).** Any sequence of detect / clock-advance / reset
+  ops followed by a final `reset()` yields the same observable state as a fresh
+  `Simulation` (stats zero, no active zone, initial speeds).
+- **R13 (one active detection).** Any run of `POST /detections` without a reset
+  produces exactly one 200 then 409s, and `/stats` never exceeds 1 detection.
+- **R4 (path safety).** `resolve_wav` rejects random path strings (``..``
+  escapes, absolute paths, sibling/symlink-like names) that resolve outside
+  `ml/`.
+
+No property found a counterexample.
