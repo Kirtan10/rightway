@@ -31,15 +31,30 @@
 
 ## Planned
 
-- [ ] 9. Add `ml/cache_demo.py` that runs `predict()` on `ml/demo_upcall.wav`
+- [x] 9. Add `ml/cache_demo.py` that runs `predict()` on `ml/demo_upcall.wav`
       and writes `ml/demo_result.json` as
       `{"confidence": <float rounded to 4 places>, "confidence_display":
       "<2 decimals>", "clip": "ml/demo_upcall.wav", "synthetic_demo_clip":
       true}`. Runnable as `python -m ml.cache_demo`.
       _R7_
 
-- [ ] 10. Add `ml/tests/test_cache_demo.py`: running it writes valid JSON with
+- [x] 10. Add `ml/tests/test_cache_demo.py`: running it writes valid JSON with
       those keys, the confidence matches `predict()` on the same file, and
       `confidence_display` is a 2-decimal string (not a percentage). Write to a
       tmp path in the test so the real file isn't overwritten.
       _R7_
+
+- [x] 11. Add `ml/snr_eval.py` (runnable as `python -m ml.snr_eval`): an SNR
+      robustness evaluation. Reuse the `make_synthetic.py` generator functions
+      (imported, not copied) to build fresh in-memory test clips with a NEW
+      seed; for each fixed SNR in [-20,-16,-12,-8,-4,0,4,8] dB make 200 clips
+      (100 up-call / 100 noise, ship tones at the training fraction) and run the
+      existing feature + `model.pt` pipeline (batched). Compute accuracy
+      (threshold 0.5), AUC and recall per SNR; write `ml/snr_eval.json` and
+      `ml/snr_curve.png`. Does not retrain or touch `model.pt`/`metrics.json`/
+      `make_synthetic.py`/training code.
+      _NFR1_
+
+- [x] 12. Add `ml/tests/test_snr_eval.py`: a tiny run (2 SNRs, 10 clips each)
+      writes JSON with the expected keys and values in [0, 1], to a tmp path.
+      _NFR1_

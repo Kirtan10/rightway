@@ -14,6 +14,21 @@ strike risk, but they depend on knowing where whales actually are. Acoustic
 detection of up-calls is one way to locate whales in near real time so that
 slow zones can be issued where they matter.
 
+## Why RightWay: closing the loop
+
+Since 2008, a network of acoustic auto-detection buoys built by the Cornell Lab
+of Ornithology and the Woods Hole Oceanographic Institution has listened for
+right whale calls along the Boston shipping lanes and alerted passing ships. But
+the response is uneven: slowing down near a detection is mandatory only for LNG
+carriers, while every other ship is merely encouraged to slow, and whether ships
+actually slow down after an alert is not measured. RightWay's contribution is
+that missing compliance loop — it tracks each vessel's speed before and after an
+alert, computes a compliance percentage, and generates a plain-language brief
+that names any non-complying vessel. Detection in RightWay is a stand-in for
+real detection systems, not a replacement.
+
+Sources: [WHOI press release](https://www.whoi.edu/press-room/news-release/new-whale-detection-buoys-will-help-ships-take-the-right-way-through-marine-habitat) · [DOSITS: real-time passive acoustic sensors](https://dosits.org/galleries/technology-gallery/observing-and-monitoring-marine-animals/real-time-passive-acoustic-sensors/)
+
 ## Solution
 
 Hydrophone up-call detection -> a 10 nm slow zone around the detection ->

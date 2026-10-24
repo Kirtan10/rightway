@@ -1,0 +1,59 @@
+{
+  "data": "synthetic",
+  "seed": 2024,
+  "n_per_snr": 200,
+  "training_snr_range_db": [
+    -8,
+    10
+  ],
+  "results": [
+    {
+      "snr_db": -20,
+      "accuracy": 0.51,
+      "auc": 0.7453,
+      "recall": 0.02
+    },
+    {
+      "snr_db": -16,
+      "accuracy": 0.55,
+      "auc": 0.8332,
+      "recall": 0.1
+    },
+    {
+      "snr_db": -12,
+      "accuracy": 0.68,
+      "auc": 0.9677,
+      "recall": 0.36
+    },
+    {
+      "snr_db": -8,
+      "accuracy": 0.89,
+      "auc": 0.999,
+      "recall": 0.78
+    },
+    {
+      "snr_db": -4,
+      "accuracy": 0.995,
+      "auc": 1.0,
+      "recall": 0.99
+    },
+    {
+      "snr_db": 0,
+      "accuracy": 1.0,
+      "auc": 1.0,
+      "recall": 1.0
+    },
+    {
+      "snr_db": 4,
+      "accuracy": 1.0,
+      "auc": 1.0,
+      "recall": 1.0
+    },
+    {
+      "snr_db": 8,
+      "accuracy": 1.0,
+      "auc": 1.0,
+      "recall": 1.0
+    }
+  ]
+}

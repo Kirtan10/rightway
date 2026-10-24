@@ -29,6 +29,11 @@ const LABEL_PLACEMENT = {
 };
 const DEFAULT_PLACEMENT = { direction: "top", offset: [0, -14] };
 
+// The 4 vessels clustered around H-2 (also the in-zone set in the demo). In the
+// idle whole-bay view their individual labels are replaced by one "4 vessels"
+// label near H-2 to avoid crowding; when zoomed into the zone they show.
+const CLUSTER_IDS = new Set(["V-4", "V-5", "V-6", "V-7"]);
+
 const STATIC = {
   demo: `${API}/static/demo_spectrogram.png`,
   audio: `${API}/static/demo_upcall.wav`,
@@ -44,6 +49,7 @@ const state = {
   zoneCircle: null,
   hydrophoneLayer: null, // L.layerGroup of hydrophone markers
   hydrophones: [], // [{id,lat,lon,simulated}] from GET /hydrophones
+  zoomMode: "idle", // "idle" (whole bay) or "zone" (flown into a detection)
 };
 
 // ---------------------------------------------------------------------------
@@ -165,10 +171,11 @@ const COASTLINE = [
   [41.83, -70.40],
   [41.80, -70.50],
   [41.79, -70.58],
-  // Close the polygon well outside the visible area (west of the -71.10 view
-  // edge and beyond the lat bounds) so no closing edge shows inside the view.
-  [41.40, -71.40],
-  [42.80, -71.40],
+  // Close the polygon far outside the visible area (well west of the view and
+  // beyond the lat bounds) so no straight closing edge is ever visible, even
+  // when zoomed in on a detection at any card width.
+  [41.00, -72.50],
+  [43.20, -72.50],
 ];
 
 function drawBaseMap() {
@@ -233,8 +240,9 @@ function drawBaseMap() {
     fill: false,
     interactive: false,
   });
-  // Label just inside the TOP of the oval (below the Simulate/Reset buttons).
-  placeDivLabel(sancLat + sancRLat - 0.05, sancLon, "Stellwagen Bank sanctuary", "sanctuary-label");
+  // Label on the RIGHT side of the oval so it never sits behind the top-right
+  // Simulate/Reset buttons.
+  placeDivLabel(42.42, -70.05, "Stellwagen Bank sanctuary", "sanctuary-label");
 
   // Place labels. Boston sits west of H-1 (42.345, -70.930) on the mainland.
   placeDivLabel(42.40, -71.00, "Boston", "place-label city");
@@ -279,6 +287,12 @@ function vesselIcon(color, heading) {
   return L.divIcon({ className: "vessel-icon", html: svg, iconSize: [22, 8], iconAnchor: [11, 4] });
 }
 
+// IDs of vessels currently inside the detection zone (empty when idle).
+function inZoneIds() {
+  if (!state.detection) return new Set();
+  return new Set(state.detection.vessels_in_zone.map((v) => v.id));
+}
+
 function renderVessels(vessels) {
   if (state.vesselLayer) {
     state.vesselLayer.remove();
@@ -286,30 +300,61 @@ function renderVessels(vessels) {
   state.vesselLayer = L.layerGroup().addTo(map);
   state.vesselMarkers = [];
 
+  const zoomed = state.zoomMode === "zone";
+  const inZone = inZoneIds();
+
   for (const v of vessels) {
     const color = STATUS_COLORS[v.status] || STATUS_COLORS.normal;
     const marker = L.marker([v.lat, v.lon], {
       icon: vesselIcon(color, v.heading),
       keyboard: false,
     });
-    const place = LABEL_PLACEMENT[v.id] || DEFAULT_PLACEMENT;
-    // Label text uses only API values; bound as a Leaflet tooltip (text, escaped).
-    const label = `${v.name} ${v.speed} kn`;
-    marker.bindTooltip(label, {
-      permanent: true,
-      direction: place.direction,
-      offset: place.offset,
-      className: "vessel-label",
-    });
-    marker._labelText = label; // remember for de-overlap rebinding
+
+    // Decide whether this vessel gets an individual label.
+    // Idle whole-bay view: hide cluster labels (replaced by one "4 vessels"
+    // label near H-2); show the rest. Zoomed-in: show every vessel label.
+    const showLabel = zoomed || !CLUSTER_IDS.has(v.id);
+    if (showLabel) {
+      const place = LABEL_PLACEMENT[v.id] || DEFAULT_PLACEMENT;
+      const label = `${v.name} ${v.speed} kn`;
+      marker.bindTooltip(label, {
+        permanent: true,
+        direction: place.direction,
+        offset: place.offset,
+        className: "vessel-label",
+      });
+      marker._labelText = label; // remember for de-overlap rebinding
+      // In-zone labels must always stay visible (never hidden by de-overlap).
+      marker._protected = zoomed && inZone.has(v.id);
+    }
     marker.addTo(state.vesselLayer);
     state.vesselMarkers.push(marker);
   }
 
+  // Combined "4 vessels" label near H-2 in the idle view only.
+  updateClusterLabel(!zoomed);
+
   state.lastVessels = vessels;
-  fitView();
   // Let Leaflet lay out the tooltips, then nudge any that overlap.
   requestAnimationFrame(() => deOverlapLabels());
+}
+
+// A single "4 vessels" divIcon near H-2, shown only in the idle whole-bay view.
+function updateClusterLabel(show) {
+  if (state.clusterLabel) {
+    state.clusterLabel.remove();
+    state.clusterLabel = null;
+  }
+  if (!show) return;
+  const h2 = (state.hydrophones || []).find((h) => h.id === "H-2");
+  if (!h2) return;
+  const icon = L.divIcon({ className: "vessel-label cluster-count", html: "", iconSize: null });
+  const marker = L.marker([h2.lat - 0.03, h2.lon], { icon, interactive: false, keyboard: false });
+  marker.addTo(map);
+  const el = marker.getElement();
+  if (el) el.textContent = "4 vessels";
+  else marker.once("add", () => { marker.getElement().textContent = "4 vessels"; });
+  state.clusterLabel = marker;
 }
 
 // Fit the map to the fixed VIEW_BOUNDS (Boston -> whole Cape). Called on
@@ -350,11 +395,12 @@ function rebindLabel(marker, direction, offset) {
 }
 
 // After markers render, measure label bounding boxes and nudge overlapping ones
-// by cycling through LABEL_TRIES. Fixed obstacles (not moved): hydrophone
-// labels, place labels, the lane label and the sanctuary label.
+// by cycling through LABEL_TRIES. Fixed obstacles (never moved): hydrophone
+// labels, place labels, the lane label, the sanctuary label, and the combined
+// "4 vessels" label. In-zone (protected) vessel labels are placed first and
+// kept; other vessel labels that still collide after trying every placement are
+// hidden (so the zoomed view stays readable).
 function deOverlapLabels() {
-  const markers = state.vesselMarkers || [];
-
   const occupied = [];
   // Hydrophone labels are tooltip-based.
   for (const m of state.hydrophoneMarkers || []) {
@@ -366,16 +412,39 @@ function deOverlapLabels() {
     const el = m.getElement();
     if (el) occupied.push(el.getBoundingClientRect());
   }
+  // The combined "4 vessels" label (idle view) is also a fixed obstacle.
+  if (state.clusterLabel && state.clusterLabel.getElement()) {
+    occupied.push(state.clusterLabel.getElement().getBoundingClientRect());
+  }
 
-  for (const marker of markers) {
+  const collides = (r) => r && occupied.some((o) => rectsOverlap(r, o));
+
+  // Only vessels that currently have a tooltip participate.
+  const labelled = (state.vesselMarkers || []).filter((m) => m.getTooltip());
+  // Protected (in-zone) labels first so they always win a spot.
+  const ordered = [
+    ...labelled.filter((m) => m._protected),
+    ...labelled.filter((m) => !m._protected),
+  ];
+
+  for (const marker of ordered) {
     let rect = labelRect(marker);
-    const collides = (r) => r && occupied.some((o) => rectsOverlap(r, o));
-
     if (collides(rect)) {
+      let resolved = false;
       for (const t of LABEL_TRIES) {
         rebindLabel(marker, t.direction, t.offset);
         rect = labelRect(marker);
-        if (!collides(rect)) break;
+        if (!collides(rect)) {
+          resolved = true;
+          break;
+        }
+      }
+      // Still overlapping: protected labels stay (readability of the zone
+      // matters most); non-protected labels are hidden.
+      if (!resolved && !marker._protected) {
+        marker.closeTooltip();
+        marker.unbindTooltip();
+        continue;
       }
     }
     if (rect) occupied.push(rect);
@@ -392,17 +461,29 @@ async function loadHydrophones() {
     state.hydrophoneLayer = L.layerGroup().addTo(map);
     state.hydrophoneMarkers = [];
     for (const h of hydrophones) {
-      const icon = L.divIcon({
-        className: "",
-        html: '<span class="hydrophone-dot"></span>',
-        iconSize: [12, 12],
-        iconAnchor: [6, 6],
+      // Larger translucent circle behind each dot for a soft glow.
+      L.circleMarker([h.lat, h.lon], {
+        radius: 12,
+        stroke: false,
+        fillColor: "#5eead4",
+        fillOpacity: 0.18,
+        interactive: false,
+      }).addTo(state.hydrophoneLayer);
+      // The crisp, always-round dot.
+      const marker = L.circleMarker([h.lat, h.lon], {
+        radius: 6,
+        color: "#2bb3a0",
+        weight: 2,
+        fillColor: "#5eead4",
+        fillOpacity: 1,
       });
-      const marker = L.marker([h.lat, h.lon], { icon, keyboard: false });
+      // H-4 label goes below to avoid colliding with the lane label.
+      const dir = h.id === "H-4" ? "bottom" : "right";
+      const off = h.id === "H-4" ? [0, 10] : [8, 0];
       marker.bindTooltip(h.id, {
         permanent: true,
-        direction: "right",
-        offset: [8, 0],
+        direction: dir,
+        offset: off,
         className: "hydrophone-label",
       });
       marker.addTo(state.hydrophoneLayer);
@@ -688,10 +769,13 @@ async function simulate() {
       body: JSON.stringify({ hydrophone_id: "H-2", wav: "ml/demo_upcall.wav" }),
     });
     state.detection = detection;
+    state.zoomMode = "zone";
     drawZone(detection);
     setSpectrogramDetected();
     renderDetectionCard(detection);
-    await refreshAll(); // immediate update
+    // Fly into the slow zone so every in-zone vessel label is readable.
+    map.flyToBounds(state.zoneCircle.getBounds(), { padding: [60, 60], duration: 1.2 });
+    await refreshAll(); // immediate update (re-renders labels in zone mode)
     startPolling(); // then every 1 s for 10 s
   } catch (e) {
     // A 503 (or any failure) from /detections surfaces in the spectrogram card.
@@ -709,12 +793,15 @@ async function reset() {
     showError("stats-error", `Reset failed: ${e.message}`);
   }
   state.detection = null;
+  state.zoomMode = "idle";
   clearZone();
   setSpectrogramIdle();
   setDetectionIdle();
   renderZoneIdle();
   setBriefIdle();
   $("simulate-btn").disabled = false;
+  // Fly back out to the whole-bay view.
+  map.flyToBounds(VIEW_BOUNDS, { duration: 1.2 });
   await refreshAll(); // re-draw normal vessels + zeroed stats
 }
 
@@ -753,6 +840,12 @@ window.addEventListener("resize", () => {
     fitView();
     requestAnimationFrame(() => deOverlapLabels());
   }, 150);
+});
+
+// After any map movement settles (including flyToBounds flights), re-run the
+// label de-overlap pass at the new zoom.
+map.on("moveend", () => {
+  requestAnimationFrame(() => deOverlapLabels());
 });
 
 // ---------------------------------------------------------------------------

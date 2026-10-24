@@ -80,3 +80,10 @@ ambient noise and vessel tones far more, and real recordings carry
 distribution shift the synthetic set does not capture. Treat the numbers as a
 functional smoke test of the pipeline, consistent with the screening-aid framing
 in `product.md`.
+
+The SNR sweep in `ml/snr_eval.py` (fresh synthetic test clips, seed 2024,
+`ml/snr_eval.json`) shows the model holds up only above roughly −4 dB SNR
+(accuracy 0.995, recall 0.99) and degrades sharply below the −8 dB bottom of the
+training range: at −12 dB recall falls to 0.36 (accuracy 0.68) and by −20 dB it
+is near chance (accuracy 0.51, recall 0.02), so quiet up-calls buried in noise
+are mostly missed.
