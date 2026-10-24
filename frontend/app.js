@@ -51,6 +51,7 @@ const state = {
   hydrophones: [], // [{id,lat,lon,simulated}] from GET /hydrophones
   zoomMode: "idle", // "idle" (whole bay) or "zone" (flown into a detection)
   noticesSent: new Set(), // vessel ids whose compliance notice was copied/opened
+  briefFetched: false, // true once the live brief has been fetched this detection
 };
 
 // ---------------------------------------------------------------------------
@@ -781,16 +782,21 @@ function initNoticeModal() {
   });
 }
 
+// Fetch the live brief exactly once, after the vessels have responded
+// (compliance_pct non-null). Before that, leave the idle text/label untouched.
 async function refreshBrief(responded) {
+  if (!responded || state.briefFetched) return;
+
+  state.briefFetched = true; // guard so we fetch at most once per detection
+  $("brief-body").textContent = "Generating brief\u2026";
   try {
     const brief = await api("/brief");
     $("brief-label").textContent =
       brief.source === "bedrock" ? "AI BRIEF \u00B7 BEDROCK" : "AI BRIEF \u00B7 CACHED";
-    if (responded) {
-      $("brief-body").textContent = brief.brief;
-    }
+    $("brief-body").textContent = brief.brief;
     clearError("brief-error");
   } catch (e) {
+    state.briefFetched = false; // allow a retry on the next poll if it failed
     showError("brief-error", `Brief unavailable: ${e.message}`);
   }
 }
@@ -938,6 +944,7 @@ async function simulate() {
     });
     state.detection = detection;
     state.zoomMode = "zone";
+    state.briefFetched = false; // a new detection gets a fresh live brief
     setSanctuaryLabelVisible(false);
     drawZone(detection);
     setSpectrogramDetected();
@@ -968,6 +975,7 @@ async function reset() {
   }
   state.detection = null;
   state.zoomMode = "idle";
+  state.briefFetched = false;
   state.noticesSent.clear();
   closeNoticeModal();
   renderNoticesStat();

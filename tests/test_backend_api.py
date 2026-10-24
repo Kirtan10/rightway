@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,8 +33,10 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def client(clock: FakeClock) -> TestClient:
-    # Replace the module-level simulation with one on the injected clock.
+    # Replace the module-level simulation with one on the injected clock, and
+    # clear the per-detection brief cache so tests don't bleed into each other.
     app.state.sim = Simulation(clock=clock)
+    app.state.brief_cache = {}
     return TestClient(app)
 
 
@@ -147,6 +151,95 @@ def test_brief_default_source(client: TestClient):
     assert body["source"] in {"cache", "bedrock"}
     assert "simulated" in body["brief"].lower()
     assert "brief" in body
+
+
+def test_brief_before_detection_returns_cached_file(client: TestClient, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        app_module.brief_module,
+        "generate_brief_result",
+        lambda d, c: calls.append((d, c)) or {"brief": "x", "source": "bedrock"},
+    )
+    body = client.get("/brief").json()
+    # Before a detection the cached file is returned as-is (no live generation,
+    # no per-detection fields). Its source is whatever the file contains.
+    assert calls == []  # no live brief before a detection
+    assert "detection_id" not in body
+    assert "generated_at" not in body
+    cached = json.loads((app_module._sim().brief_default_path()).read_text())
+    cached.setdefault("source", "cache")
+    assert body == cached
+
+
+def test_brief_live_after_response_generated_once(
+    client: TestClient, clock: FakeClock, monkeypatch
+):
+    calls = []
+
+    def fake_generate(detection, _compliance):
+        calls.append(detection["detection_id"])
+        return {"brief": "LIVE right whale up-call 10 nm simulated 75%", "source": "bedrock"}
+
+    monkeypatch.setattr(app_module.brief_module, "generate_brief_result", fake_generate)
+
+    client.post("/detections", json={"hydrophone_id": "H-2"})
+    clock.advance(sim_module.SIM_RESPONSE_SECONDS + 1)
+
+    first = client.get("/brief").json()
+    assert first["source"] == "bedrock"
+    assert first["brief"] == "LIVE right whale up-call 10 nm simulated 75%"
+    assert first["detection_id"] == "DET-1"
+    assert "generated_at" in first
+    assert calls == ["DET-1"]  # called once with the live detection_id
+
+    # A second GET must reuse the cached result, not call again.
+    second = client.get("/brief").json()
+    assert second == first
+    assert calls == ["DET-1"]
+    assert client.get("/stats").json()["detections"] == 1
+
+
+def test_brief_live_source_cache_returns_file(client: TestClient, clock: FakeClock, monkeypatch):
+    monkeypatch.setattr(
+        app_module.brief_module,
+        "generate_brief_result",
+        lambda d, c: {"brief": "ignored when source is cache", "source": "cache"},
+    )
+    client.post("/detections", json={"hydrophone_id": "H-2"})
+    clock.advance(sim_module.SIM_RESPONSE_SECONDS + 1)
+    body = client.get("/brief").json()
+    assert body["source"] == "cache"
+    # Body comes from backend/cache/brief.json, not the live (rejected) text.
+    assert body["brief"] != "ignored when source is cache"
+    assert body["detection_id"] == "DET-1"
+
+
+def test_reset_clears_per_detection_brief_cache(
+    client: TestClient, clock: FakeClock, monkeypatch
+):
+    calls = []
+
+    def fake_generate(detection, _compliance):
+        calls.append(detection["detection_id"])
+        return {"brief": "LIVE right whale up-call 10 nm simulated 75%", "source": "bedrock"}
+
+    monkeypatch.setattr(app_module.brief_module, "generate_brief_result", fake_generate)
+
+    client.post("/detections", json={"hydrophone_id": "H-2"})
+    clock.advance(sim_module.SIM_RESPONSE_SECONDS + 1)
+    client.get("/brief")
+    assert calls == ["DET-1"]
+
+    client.post("/reset")
+    assert app.state.brief_cache == {}  # cleared on reset
+
+    # A fresh detection generates again. Reset zeroes the detection counter, so
+    # the id is DET-1 again; because the cache was cleared, generate is called a
+    # second time (a stale cache would have been a hit and skipped the call).
+    client.post("/detections", json={"hydrophone_id": "H-2"})
+    clock.advance(sim_module.SIM_RESPONSE_SECONDS + 1)
+    client.get("/brief")
+    assert calls == ["DET-1", "DET-1"]
 
 
 def test_detection_returns_503_when_predict_raises(client: TestClient, monkeypatch):

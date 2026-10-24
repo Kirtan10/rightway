@@ -35,3 +35,17 @@
       state change). Test: two POSTs in a row — the second is 409 and `/stats`
       still shows 1 detection and 4 alerts.
       _R13_
+
+- [x] 8. Make `GET /brief` live per detection: add read-only
+      `Simulation.brief_inputs()` / `active_detection_id()` that expose the
+      current `(detection, compliance)` in `build_demo_input()` shape once the
+      vessels have responded; call `brief.generate_brief_result` from a sync
+      `/brief` route; cache the result in memory keyed by `detection_id`
+      (Bedrock at most once per detection) and clear it on `/reset`; return
+      `{"brief","source","detection_id","generated_at"}`, falling back to the
+      cached file (`source:"cache"`) when the live call isn't `"bedrock"`.
+      Tests (mocking `generate_brief_result`): before a detection -> cached
+      file; after response -> generated once with the live `detection_id`, a
+      second GET doesn't call again; live `source:"cache"` -> cached file;
+      `/reset` clears the per-detection cache.
+      _R8_

@@ -55,3 +55,11 @@ WHEN run as `__main__` THE SYSTEM SHALL call `generate_brief_result` on
 `build_demo_input()`, and only when `source == "bedrock"` overwrite
 `backend/cache/brief.json`; otherwise it SHALL keep the existing cache. It
 SHALL print the result in either case.
+
+### R7 — Bounded Bedrock calls
+
+THE SYSTEM SHALL build the `bedrock-runtime` client with a botocore `Config`
+of `connect_timeout=3`, `read_timeout=10`, and `retries={"max_attempts": 1}`,
+so a slow or unreachable Bedrock endpoint fails fast and falls back to the cache
+(per R3) instead of hanging. The validation checks in `_validation_failure`
+are unchanged.

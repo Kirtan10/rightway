@@ -200,6 +200,44 @@ class Simulation:
         """True if a detection is active (and not yet cleared by reset)."""
         return self._detection is not None
 
+    def active_detection_id(self) -> str | None:
+        """The current detection's id, or None if no detection is active."""
+        return self._detection["detection_id"] if self._detection else None
+
+    def brief_inputs(self) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Return (detection, compliance) in build_demo_input() shape from the
+        current sim state, or None if no detection is active or the vessels have
+        not responded yet (compliance_pct is still null).
+
+        Read-only: computes the response if due, but reports the same state the
+        read endpoints expose. Confidence/display and per-vessel before/after
+        come straight from the live detection and compliance.
+        """
+        self._apply_response_if_due()
+        comp = self.compliance()
+        if self._detection is None or comp["compliance_pct"] is None:
+            return None
+
+        det = self._detection
+        detection = {
+            "detection_id": det["detection_id"],
+            "hydrophone_id": det["hydrophone_id"],
+            "confidence": det["confidence"],
+            "confidence_display": f"{float(det['confidence']):.2f}",
+            "zone": dict(det["zone"]),
+            "vessels_in_zone": [dict(v) for v in det["vessels_in_zone"]],
+            "synthetic_demo_clip": True,
+            "simulated": True,
+        }
+        pct = comp["compliance_pct"]
+        compliance = {
+            "compliance_pct": pct,
+            "compliance_display": f"{pct:g}%",
+            "vessels": [dict(v) for v in comp["vessels"]],
+            "simulated": True,
+        }
+        return detection, compliance
+
     # --- writes ------------------------------------------------------------
 
     def create_detection(self, hydrophone_id: str, confidence: float) -> dict[str, Any]:

@@ -89,10 +89,18 @@ def _get_client():
         raise RuntimeError("BEDROCK_MODEL_ID is not set")
     try:
         import boto3
+        from botocore.config import Config
     except ImportError as exc:  # boto3 not installed -> fall back to cache
         raise RuntimeError("boto3 is not installed") from exc
     region = os.environ.get("AWS_REGION", DEFAULT_REGION)
-    return boto3.client("bedrock-runtime", region_name=region)
+    # Bound how long a Bedrock call can take so /brief can't hang: fail fast and
+    # fall back to the cache instead of retrying.
+    config = Config(
+        connect_timeout=3,
+        read_timeout=10,
+        retries={"max_attempts": 1},
+    )
+    return boto3.client("bedrock-runtime", region_name=region, config=config)
 
 
 def _user_message(detection: dict[str, Any], compliance: dict[str, Any]) -> str:

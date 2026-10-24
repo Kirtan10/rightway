@@ -11,6 +11,7 @@ never imports backend/brief.py.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from . import brief as brief_module
 from .sim import ML_DIR, Simulation, resolve_wav
 
 app = FastAPI(title="RightWay backend")
@@ -34,6 +36,10 @@ app.add_middleware(
 # an injected clock.
 app.state.sim = Simulation()
 
+# In-memory per-detection brief cache (keyed by detection_id) so Bedrock is
+# called at most once per detection. Cleared on /reset.
+app.state.brief_cache = {}
+
 # Allow-list of ML assets served read-only at /static/<filename>.
 STATIC_FILES = {
     "demo_spectrogram.png",
@@ -45,6 +51,12 @@ STATIC_FILES = {
 
 def _sim() -> Simulation:
     return app.state.sim
+
+
+def _brief_cache() -> dict[str, dict[str, Any]]:
+    if not hasattr(app.state, "brief_cache"):
+        app.state.brief_cache = {}
+    return app.state.brief_cache
 
 
 class DetectionRequest(BaseModel):
@@ -106,17 +118,47 @@ def get_stats() -> dict[str, Any]:
 @app.post("/reset")
 def post_reset() -> dict[str, Any]:
     _sim().reset()
+    _brief_cache().clear()
     return {"ok": True}
 
 
-@app.get("/brief")
-def get_brief() -> dict[str, Any]:
+def _cached_file_brief() -> dict[str, Any]:
+    """Return backend/cache/brief.json (source 'cache'), or a placeholder."""
     path = _sim().brief_default_path()
     if not path.exists():
         return {"brief": "Brief not generated yet.", "source": "cache"}
     data = json.loads(path.read_text())
     data.setdefault("source", "cache")
     return data
+
+
+# Sync def: FastAPI runs it in a threadpool, so the blocking Bedrock call never
+# blocks the event loop.
+@app.get("/brief")
+def get_brief() -> dict[str, Any]:
+    inputs = _sim().brief_inputs()
+
+    # Before a detection, or before the vessels have responded, serve the file.
+    if inputs is None:
+        return _cached_file_brief()
+
+    detection, compliance = inputs
+    detection_id = detection["detection_id"]
+    cache = _brief_cache()
+
+    # Build (and generate) at most once per detection; reuse the cached result.
+    if detection_id not in cache:
+        result = brief_module.generate_brief_result(detection, compliance)
+        if result["source"] == "bedrock":
+            payload = {"brief": result["brief"], "source": "bedrock"}
+        else:
+            # Live call failed validation / was unavailable: use the file.
+            payload = {"brief": _cached_file_brief()["brief"], "source": "cache"}
+        payload["detection_id"] = detection_id
+        payload["generated_at"] = datetime.now(UTC).isoformat()
+        cache[detection_id] = payload
+
+    return cache[detection_id]
 
 
 @app.get("/static/{filename}")

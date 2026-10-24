@@ -24,3 +24,9 @@
 - [ ] 5. Run `ruff check backend/brief.py tests/` and
       `pytest -q tests/test_brief.py`.
       _R1–R6_
+
+- [x] 6. Bound Bedrock calls: `_get_client()` builds the `bedrock-runtime`
+      client with a botocore `Config(connect_timeout=3, read_timeout=10,
+      retries={"max_attempts": 1})` so a slow/unreachable endpoint fails fast
+      and falls back to the cache. Validation checks unchanged.
+      _R7_

@@ -60,10 +60,25 @@ simulated:true}`. `compliance_pct = complying / in-zone * 100` (75.0 in the
 demo), or `null` before any detection or before the response time has passed.
 
 ### R8 — GET /brief
-`GET /brief` SHALL return `backend/cache/brief.json` as-is, adding
-`"source":"cache"` if missing; if the file is missing it SHALL return
-`{"brief":"Brief not generated yet.","source":"cache"}`. It SHALL NOT import or
-call `backend/brief.py`.
+Before a detection, or before the in-zone vessels have responded
+(`compliance_pct` is null), `GET /brief` SHALL return `backend/cache/brief.json`
+as-is, adding `"source":"cache"` if missing; if the file is missing it SHALL
+return `{"brief":"Brief not generated yet.","source":"cache"}`.
+
+WHEN a detection is active AND the vessels have responded, `GET /brief` SHALL
+build `(detection, compliance)` from the current sim state in the same shape as
+`brief.build_demo_input()` (hydrophone, confidence, confidence_display, zone,
+vessels_in_zone, compliance_pct, compliance_display, per-vessel
+before/after/status, simulated flags) and call
+`brief.generate_brief_result(detection, compliance)`. The result SHALL be cached
+in memory keyed by `detection_id` so Bedrock is called at most once per
+detection, and `POST /reset` SHALL clear that cache. The response SHALL be
+`{"brief","source","detection_id","generated_at"}` where `source` is `"bedrock"`
+only if the live call passed validation; otherwise the brief text comes from
+`backend/cache/brief.json` with `source` `"cache"`. The route SHALL be a sync
+`def` (run in FastAPI's threadpool) so the blocking Bedrock call never blocks the
+event loop. The route SHALL NOT import prompt/validation internals of
+`backend/brief.py` beyond calling `generate_brief_result`.
 
 ### R9 — GET /stats
 `GET /stats` -> `{detections, alerts_sent, compliance_pct, simulated:true}`,
