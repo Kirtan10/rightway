@@ -6,7 +6,7 @@
 const API = "http://localhost:8000";
 
 const STATUS_COLORS = {
-  normal: "#cbd5e1",
+  normal: "#e2e8f0",
   alerted: "#f59e0b",
   complying: "#22c55e",
   not_complying: "#ef4444",
@@ -15,20 +15,19 @@ const STATUS_COLORS = {
 // Per-vessel tooltip placement so permanent labels don't overlap at fit zoom.
 // Keyed by vessel id; direction + pixel offset spread the labels around.
 const LABEL_PLACEMENT = {
-  "V-1": { direction: "left", offset: [-8, 0] },    // Mystic (west)
-  "V-2": { direction: "right", offset: [8, 0] },    // Atlantic Star (far east)
-  "V-3": { direction: "bottom", offset: [0, 8] },   // Orion Bay (far east)
-  "V-4": { direction: "bottom", offset: [0, 10] },  // Blue Fin II (cluster)
-  "V-5": { direction: "top", offset: [0, -10] },    // Nordic Tide (cluster)
-  "V-6": { direction: "left", offset: [-10, 6] },   // Harbor Queen (cluster)
-  "V-7": { direction: "right", offset: [10, 0] },   // Cape Runner (cluster)
-  "V-8": { direction: "top", offset: [0, -8] },     // Sea Ledger (north)
-  "V-9": { direction: "bottom", offset: [0, 8] },   // Gull Point (south)
+  "V-1": { direction: "left", offset: [-10, 0] },   // Mystic (west)
+  "V-2": { direction: "right", offset: [10, 0] },   // Atlantic Star (far east)
+  "V-3": { direction: "bottom", offset: [0, 10] },  // Orion Bay (far east)
+  "V-4": { direction: "bottom", offset: [0, 12] },  // Blue Fin II (cluster)
+  "V-5": { direction: "top", offset: [0, -12] },    // Nordic Tide (cluster)
+  "V-6": { direction: "left", offset: [-12, 6] },   // Harbor Queen (cluster)
+  "V-7": { direction: "right", offset: [12, 0] },   // Cape Runner (cluster)
+  "V-8": { direction: "top", offset: [0, -10] },    // Sea Ledger (north)
+  "V-9": { direction: "bottom", offset: [0, 10] },  // Gull Point (south)
 };
-const DEFAULT_PLACEMENT = { direction: "top", offset: [0, -8] };
+const DEFAULT_PLACEMENT = { direction: "top", offset: [0, -10] };
 
 const STATIC = {
-  noise: `${API}/static/noise_spectrogram.png`,
   demo: `${API}/static/demo_spectrogram.png`,
   audio: `${API}/static/demo_upcall.wav`,
 };
@@ -79,34 +78,211 @@ async function api(path, options) {
 }
 
 // ---------------------------------------------------------------------------
-// Map
+// Map (schematic — no tiles)
 // ---------------------------------------------------------------------------
-const map = L.map("map", { zoomControl: true, attributionControl: true });
+const map = L.map("map", {
+  zoomControl: false,
+  attributionControl: false,
+  scrollWheelZoom: false,
+  dragging: false,
+  doubleClickZoom: false,
+  boxZoom: false,
+  keyboard: false,
+  touchZoom: false,
+});
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: "abcd",
-  maxZoom: 19,
-}).addTo(map);
+// The view is fit to the live markers (see fitToMarkers); this is a fallback
+// until /vessels + /hydrophones load.
+const FALLBACK_BOUNDS = L.latLngBounds([42.0, -71.05], [42.62, -70.25]);
+map.fitBounds(FALLBACK_BOUNDS);
 
-map.setView([42.33, -70.7], 10); // provisional; refined by fitBounds
+// Approximate Massachusetts coastline (schematic, ~70 points). Mainland edge is
+// kept west of the vessels (Mystic is at lon -71.00); the Cape's arm runs south
+// and east of them, so land never covers a vessel or hydrophone.
+// Order: Cape Ann -> Boston Harbor/Hull -> South Shore -> Plymouth -> Canal ->
+// Cape arm east to Chatham -> up the outer Cape -> Provincetown hook (curls
+// back west) -> close down the far-left edge.
+const COASTLINE = [
+  // North mainland / Cape Ann, down the shore toward Boston (kept west of -71.0)
+  [42.62, -70.78],
+  [42.60, -70.83],
+  [42.57, -70.87],
+  [42.54, -70.90],
+  [42.51, -70.93],
+  [42.48, -70.96],
+  [42.45, -70.99],
+  [42.43, -71.02],
+  [42.41, -71.04],
+  [42.39, -71.05], // Boston Harbor (west of Mystic @ -71.00)
+  [42.37, -71.05],
+  [42.355, -71.04], // harbor mouth
+  [42.34, -71.02],
+  [42.325, -71.00], // Hull peninsula curling out
+  [42.31, -70.98],
+  [42.30, -70.95],
+  [42.285, -70.93], // Nantasket / South Shore
+  [42.27, -70.90],
+  [42.24, -70.86],
+  [42.21, -70.83], // Scituate
+  [42.17, -70.80],
+  [42.13, -70.78],
+  [42.09, -70.76],
+  [42.05, -70.74], // Plymouth
+  [42.01, -70.72],
+  [41.97, -70.70],
+  [41.93, -70.68], // toward the canal
+  [41.90, -70.66],
+  [41.87, -70.63],
+  [41.84, -70.60], // Cape Cod Canal (west end)
+  [41.80, -70.56],
+  [41.77, -70.52],
+  [41.75, -70.46], // upper Cape, arm turning east
+  [41.74, -70.38],
+  [41.73, -70.30],
+  [41.72, -70.22],
+  [41.71, -70.14],
+  [41.70, -70.06],
+  [41.69, -69.99], // toward Chatham (outer elbow)
+  [41.70, -69.95],
+  [41.74, -69.94],
+  [41.80, -69.95], // up the outer Cape (Atlantic side)
+  [41.86, -69.97],
+  [41.92, -70.00],
+  [41.98, -70.02],
+  [42.03, -70.06],
+  [42.06, -70.11], // approaching the hook
+  [42.075, -70.17],
+  [42.07, -70.22], // Provincetown hook tip
+  [42.055, -70.24],
+  [42.04, -70.22],
+  [42.035, -70.17], // inside of the hook, curling back west
+  [42.02, -70.14],
+  [41.98, -70.16],
+  [41.93, -70.22], // bay (inner) side of the Cape arm
+  [41.88, -70.30],
+  [41.83, -70.40],
+  [41.80, -70.50],
+  [41.79, -70.58],
+  // Close the polygon well off-map to the south and west so only the
+  // intended shore shows inside the view.
+  [41.70, -71.20],
+  [42.70, -71.20],
+];
+
+function drawBaseMap() {
+  // Land polygon (smoothed).
+  L.polygon(COASTLINE, {
+    color: "#2f6b4f",
+    weight: 1.5,
+    fillColor: "#0f2a22",
+    fillOpacity: 0.9,
+    smoothFactor: 1.5,
+    interactive: false,
+  }).addTo(map);
+
+  // Faint graticule: a few low-opacity horizontal curves across the water.
+  const graticuleLats = [42.5, 42.2, 41.9];
+  for (const lat of graticuleLats) {
+    const pts = [];
+    for (let lon = -71.1; lon <= -69.9; lon += 0.1) {
+      pts.push([lat + 0.04 * Math.sin((lon + 71) * 2.5), lon]);
+    }
+    L.polyline(pts, { color: "#ffffff", weight: 1, opacity: 0.04, interactive: false }).addTo(map);
+  }
+
+  // Shipping lane band (~3 nm wide) from Boston Harbor east past the vessels.
+  const laneWest = [42.36, -70.95];
+  const laneEast = [42.30, -70.3];
+  const halfWidthDeg = 0.025; // ~1.5 nm each side
+  const lanePoly = [
+    [laneWest[0] + halfWidthDeg, laneWest[1]],
+    [laneEast[0] + halfWidthDeg, laneEast[1]],
+    [laneEast[0] - halfWidthDeg, laneEast[1]],
+    [laneWest[0] - halfWidthDeg, laneWest[1]],
+  ];
+  L.polygon(lanePoly, {
+    stroke: false,
+    fillColor: "#5eead4",
+    fillOpacity: 0.1,
+    interactive: false,
+  }).addTo(map);
+  L.polyline([laneWest, laneEast], {
+    color: "#5eead4",
+    opacity: 0.35,
+    weight: 1.5,
+    dashArray: "5 7",
+    interactive: false,
+  }).addTo(map);
+  // Lane label on the band, west end (away from the vessel cluster to the east).
+  placeDivLabel(42.355 + halfWidthDeg + 0.015, -70.86, "Boston shipping lane", "lane-label");
+
+  // Stellwagen Bank sanctuary: dashed teal ellipse outline (no fill).
+  const sancLat = 42.42;
+  const sancLon = -70.33;
+  const sancRLat = 0.3;
+  placeEllipse(sancLat, sancLon, sancRLat, 0.2, {
+    color: "#5eead4",
+    opacity: 0.35,
+    weight: 1.5,
+    dashArray: "4 7",
+    fill: false,
+    interactive: false,
+  });
+  // Label near the BOTTOM of the ellipse so it stays clear of the top-right buttons.
+  placeDivLabel(sancLat - sancRLat - 0.03, sancLon, "Stellwagen Bank sanctuary", "sanctuary-label");
+
+  // Place labels. Boston sits west of H-1 (42.345, -70.930) on the mainland.
+  placeDivLabel(42.40, -71.00, "Boston", "place-label city");
+  placeDivLabel(42.04, -70.74, "Plymouth", "place-label area");
+  placeDivLabel(42.14, -70.42, "Cape Cod Bay", "place-label area");
+  placeDivLabel(41.80, -70.30, "Cape Cod", "place-label area");
+}
+
+function placeEllipse(lat, lon, rLat, rLon, style) {
+  const pts = [];
+  for (let a = 0; a <= 360; a += 10) {
+    const r = (a * Math.PI) / 180;
+    pts.push([lat + rLat * Math.sin(r), lon + rLon * Math.cos(r)]);
+  }
+  L.polyline(pts, style).addTo(map);
+}
+
+function placeDivLabel(lat, lon, text, className) {
+  const icon = L.divIcon({ className, html: "", iconSize: null });
+  const marker = L.marker([lat, lon], { icon, interactive: false, keyboard: false });
+  marker.addTo(map);
+  // Set text safely (no innerHTML of API data; these are static strings, but
+  // keep the escaping discipline consistent).
+  const el = marker.getElement();
+  if (el) el.textContent = text;
+  else marker.once("add", () => { marker.getElement().textContent = text; });
+}
+
+// Pointed-hull ship icon (~22x8). The hull points RIGHT (east) at 0deg, so a
+// compass heading maps to rotate(heading - 90): heading 90 (east) -> 0deg
+// (points right), heading 0 (north) -> -90deg (points up).
+function vesselIcon(color, heading) {
+  const deg = (Number(heading) || 0) - 90; // numeric from API; coerce defensively
+  const svg =
+    `<svg width="22" height="8" viewBox="0 0 22 8" ` +
+    `style="transform:rotate(${deg}deg)">` +
+    `<path d="M1 4 L13 1 L21 4 L13 7 Z" fill="${color}" ` +
+    `stroke="#04101c" stroke-width="0.6"/></svg>`;
+  return L.divIcon({ className: "vessel-icon", html: svg, iconSize: [22, 8], iconAnchor: [11, 4] });
+}
 
 function renderVessels(vessels) {
   if (state.vesselLayer) {
     state.vesselLayer.remove();
   }
   state.vesselLayer = L.layerGroup().addTo(map);
+  state.vesselMarkers = [];
 
-  const points = [];
   for (const v of vessels) {
     const color = STATUS_COLORS[v.status] || STATUS_COLORS.normal;
-    const marker = L.circleMarker([v.lat, v.lon], {
-      radius: 7,
-      color: "#0b1220",
-      weight: 1.5,
-      fillColor: color,
-      fillOpacity: 0.95,
+    const marker = L.marker([v.lat, v.lon], {
+      icon: vesselIcon(color, v.heading),
+      keyboard: false,
     });
     const place = LABEL_PLACEMENT[v.id] || DEFAULT_PLACEMENT;
     // Label text uses only API values; bound as a Leaflet tooltip (text, escaped).
@@ -117,15 +293,89 @@ function renderVessels(vessels) {
       offset: place.offset,
       className: "vessel-label",
     });
+    marker._labelText = label; // remember for de-overlap rebinding
     marker.addTo(state.vesselLayer);
-    points.push([v.lat, v.lon]);
+    state.vesselMarkers.push(marker);
   }
 
-  for (const h of state.hydrophones) {
-    points.push([h.lat, h.lon]);
+  state.lastVessels = vessels;
+  fitToMarkers();
+  // Let Leaflet lay out the tooltips, then nudge any that overlap.
+  requestAnimationFrame(() => deOverlapLabels());
+}
+
+// Fit the view to vessels + hydrophones with ~15% padding, so the action fills
+// the card. The left edge keeps some coastline visible via the padding.
+function fitToMarkers() {
+  const pts = [];
+  for (const v of state.lastVessels || []) pts.push([v.lat, v.lon]);
+  for (const h of state.hydrophones || []) pts.push([h.lat, h.lon]);
+  if (!pts.length) return;
+  const bounds = L.latLngBounds(pts);
+  // 15% padding relative to the span on each axis.
+  const latPad = (bounds.getNorth() - bounds.getSouth()) * 0.15 || 0.05;
+  const lonPad = (bounds.getEast() - bounds.getWest()) * 0.15 || 0.05;
+  const padded = L.latLngBounds(
+    [bounds.getSouth() - latPad, bounds.getWest() - lonPad],
+    [bounds.getNorth() + latPad, bounds.getEast() + lonPad],
+  );
+  map.fitBounds(padded, { animate: false });
+}
+
+// Candidate tooltip placements to try, in order, when a label overlaps another.
+const LABEL_TRIES = [
+  { direction: "right", offset: [12, 0] },
+  { direction: "left", offset: [-12, 0] },
+  { direction: "top", offset: [0, -12] },
+  { direction: "bottom", offset: [0, 12] },
+  { direction: "right", offset: [12, -16] },
+  { direction: "left", offset: [-12, 16] },
+];
+
+function rectsOverlap(a, b) {
+  return !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top);
+}
+
+function labelRect(marker) {
+  const tip = marker.getTooltip();
+  const el = tip && tip.getElement();
+  return el ? el.getBoundingClientRect() : null;
+}
+
+function rebindLabel(marker, direction, offset) {
+  marker.unbindTooltip();
+  marker.bindTooltip(marker._labelText, {
+    permanent: true,
+    direction,
+    offset,
+    className: "vessel-label",
+  });
+}
+
+// After markers render, measure label bounding boxes and nudge overlapping ones
+// (including any overlapping a hydrophone label) by cycling through LABEL_TRIES.
+function deOverlapLabels() {
+  const markers = state.vesselMarkers || [];
+
+  // Fixed obstacles: hydrophone labels keep their place.
+  const occupied = [];
+  for (const m of state.hydrophoneMarkers || []) {
+    const r = labelRect(m);
+    if (r) occupied.push(r);
   }
-  if (points.length) {
-    map.fitBounds(points, { padding: [40, 40], maxZoom: 11 });
+
+  for (const marker of markers) {
+    let rect = labelRect(marker);
+    const collides = (r) => r && occupied.some((o) => rectsOverlap(r, o));
+
+    if (collides(rect)) {
+      for (const t of LABEL_TRIES) {
+        rebindLabel(marker, t.direction, t.offset);
+        rect = labelRect(marker);
+        if (!collides(rect)) break;
+      }
+    }
+    if (rect) occupied.push(rect);
   }
 }
 
@@ -137,14 +387,15 @@ async function loadHydrophones() {
     state.hydrophones = hydrophones;
     if (state.hydrophoneLayer) state.hydrophoneLayer.remove();
     state.hydrophoneLayer = L.layerGroup().addTo(map);
+    state.hydrophoneMarkers = [];
     for (const h of hydrophones) {
-      const marker = L.circleMarker([h.lat, h.lon], {
-        radius: 6,
-        color: "#5eead4",
-        weight: 2,
-        fillColor: "#5eead4",
-        fillOpacity: 0.6,
+      const icon = L.divIcon({
+        className: "",
+        html: '<span class="hydrophone-dot"></span>',
+        iconSize: [8, 8],
+        iconAnchor: [4, 4],
       });
+      const marker = L.marker([h.lat, h.lon], { icon, keyboard: false });
       marker.bindTooltip(h.id, {
         permanent: true,
         direction: "right",
@@ -152,7 +403,11 @@ async function loadHydrophones() {
         className: "hydrophone-label",
       });
       marker.addTo(state.hydrophoneLayer);
+      state.hydrophoneMarkers.push(marker);
     }
+    // Now that hydrophone points exist, refit and re-run de-overlap.
+    fitToMarkers();
+    requestAnimationFrame(() => deOverlapLabels());
   } catch (e) {
     state.hydrophones = [];
     console.error("Failed to load hydrophones:", e.message);
@@ -169,6 +424,7 @@ function drawZone(detection) {
     dashArray: "6 8",
     fillColor: "#f59e0b",
     fillOpacity: 0.08,
+    interactive: false,
   }).addTo(map);
   // Hydrophones (incl. H-2) are drawn on load from /hydrophones.
 }
@@ -183,15 +439,34 @@ function clearZone() {
 // ---------------------------------------------------------------------------
 // Cards
 // ---------------------------------------------------------------------------
+function buildSpecGrid() {
+  const grid = $("spec-grid");
+  grid.replaceChildren();
+  const cells = 40 * 12;
+  for (let i = 0; i < cells; i += 1) {
+    const cell = document.createElement("i");
+    const o = (0.05 + Math.random() * 0.22).toFixed(3);
+    cell.style.setProperty("--o", o);
+    cell.style.animationDelay = `${(Math.random() * 2.6).toFixed(2)}s`;
+    grid.append(cell);
+  }
+}
+
 function setSpectrogramIdle() {
-  $("spec-img").src = STATIC.noise;
+  $("spec-grid").hidden = false;
+  $("spec-img").hidden = true;
+  $("spec-img").removeAttribute("src");
   $("spec-caption").textContent = "background ocean noise";
+  $("hydro-status").textContent = "Listening\u2026";
   clearError("spec-error");
 }
 
 function setSpectrogramDetected() {
+  $("spec-grid").hidden = true;
   $("spec-img").src = STATIC.demo;
+  $("spec-img").hidden = false;
   $("spec-caption").textContent = "synthetic demo clip";
+  $("hydro-status").textContent = "Up-call detected";
   const audio = $("demo-audio");
   audio.src = STATIC.audio;
   const p = audio.play();
@@ -201,10 +476,17 @@ function setSpectrogramDetected() {
 }
 
 function renderDetectionCard(detection) {
-  $("detection-card").hidden = false;
   // Confidence from the API only, 2 decimals, never a percentage.
   const conf = Number(detection.confidence).toFixed(2);
-  $("detection-line").textContent = `${detection.hydrophone_id} · confidence ${conf}`;
+  const zone = detection.zone;
+  const time = new Date().toLocaleTimeString();
+  $("detection-line").textContent =
+    `${detection.hydrophone_id} \u00B7 confidence ${conf} \u00B7 ` +
+    `zone ${zone.radius_nm} nm @ ${zone.lat.toFixed(3)}, ${zone.lon.toFixed(3)} \u00B7 ${time}`;
+}
+
+function setDetectionIdle() {
+  $("detection-line").textContent = "No detections this session.";
 }
 
 function renderZoneList(detection, vessels) {
@@ -426,8 +708,7 @@ async function reset() {
   state.detection = null;
   clearZone();
   setSpectrogramIdle();
-  $("detection-card").hidden = true;
-  $("detection-line").textContent = "";
+  setDetectionIdle();
   renderZoneIdle();
   setBriefIdle();
   $("simulate-btn").disabled = false;
@@ -445,14 +726,31 @@ function initTabs() {
       btn.classList.add("is-active");
       const which = btn.dataset.tab;
       document.querySelector('[data-panel="live"]').hidden = which !== "live";
+      document.querySelector('[data-panel="detections"]').hidden = which !== "detections";
       document.querySelector('[data-panel="compliance"]').hidden = which !== "compliance";
       if (which === "live") {
-        // Leaflet needs a size recalculation when its panel was hidden.
-        setTimeout(() => map.invalidateSize(), 50);
+        // Leaflet needs a size recalculation when its panel was hidden; then
+        // re-fit to the markers and re-run label de-overlap at the real size.
+        setTimeout(() => {
+          map.invalidateSize();
+          fitToMarkers();
+          requestAnimationFrame(() => deOverlapLabels());
+        }, 50);
       }
     });
   });
 }
+
+// Re-fit the map (and nudge labels) when the window is resized.
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  if (resizeTimer) clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    map.invalidateSize();
+    fitToMarkers();
+    requestAnimationFrame(() => deOverlapLabels());
+  }, 150);
+});
 
 // ---------------------------------------------------------------------------
 // Init
@@ -462,10 +760,13 @@ function init() {
   $("simulate-btn").addEventListener("click", simulate);
   $("reset-btn").addEventListener("click", reset);
 
+  drawBaseMap();
+  buildSpecGrid();
+
   setSpectrogramIdle();
   renderZoneIdle();
   setBriefIdle();
-  $("detection-card").hidden = true;
+  setDetectionIdle();
 
   // Draw all four hydrophones on load, then the initial (idle) bay state.
   loadHydrophones().then(refreshAll);

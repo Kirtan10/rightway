@@ -10,75 +10,105 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 48 24" aria-hidden="true">
+        <path d="M2 14 C10 4, 26 2, 36 9 C40 11, 44 10, 46 7 C45 13, 40 16, 34 16
+                 C26 20, 10 21, 2 14 Z" fill="none" stroke="#5eead4" stroke-width="1.6"/>
+        <path d="M36 9 C38 7, 40 6, 42 4" fill="none" stroke="#5eead4" stroke-width="1.6"/>
+        <circle cx="10" cy="12" r="1.2" fill="#5eead4"/>
+      </svg>
       <h1>RightWay</h1>
-      <p class="tagline">Hear the whale. Slow the ship.</p>
+      <span class="tagline">Hear the whale. Slow the ship.</span>
     </div>
+
+    <nav class="tabs">
+      <button class="tab is-active" data-tab="live">Live bay</button>
+      <button class="tab" data-tab="detections">Detections</button>
+      <button class="tab" data-tab="compliance">Ship compliance</button>
+    </nav>
+
     <div class="meta">
       <span class="pill">Massachusetts Bay · 4 hydrophones · 9 vessels</span>
       <span class="badge-demo">DEMO DATA</span>
     </div>
-    <nav class="tabs">
-      <button class="tab is-active" data-tab="live">Live bay</button>
-      <button class="tab" data-tab="compliance">Ship compliance</button>
-    </nav>
   </header>
 
   <main>
     <!-- LIVE BAY TAB -->
-    <section class="panel" data-panel="live">
-      <div class="map-col">
+    <section class="panel panel-live" data-panel="live">
+      <div class="map-card">
         <div id="map"></div>
-        <div class="map-controls">
+
+        <div class="map-overlay tl">
+          <div class="overlay-kicker">LIVE BAY · hydrophones + ship positions</div>
+          <div class="overlay-title">Listening to the bay</div>
+        </div>
+
+        <div class="map-overlay tr">
           <button id="simulate-btn" class="btn-primary">Simulate whale call</button>
           <button id="reset-btn" class="btn-ghost">Reset</button>
         </div>
-        <ul class="legend">
-          <li><span class="dot" style="background:#cbd5e1"></span>normal</li>
-          <li><span class="dot" style="background:#f59e0b"></span>alerted</li>
-          <li><span class="dot" style="background:#22c55e"></span>complying</li>
-          <li><span class="dot" style="background:#ef4444"></span>not complying</li>
-          <li><span class="dot ring"></span>hydrophone</li>
-        </ul>
+
+        <div class="map-overlay bl legend">
+          <span class="legend-item"><span class="dot hydro"></span>Hydrophone</span>
+          <span class="legend-item"><span class="bar" style="background:#e2e8f0"></span>Vessel</span>
+          <span class="legend-item"><span class="bar" style="background:#f59e0b"></span>Alerted, slowing</span>
+          <span class="legend-item"><span class="bar" style="background:#22c55e"></span>Complying ≤10 kn</span>
+          <span class="legend-item"><span class="bar" style="background:#ef4444"></span>Not complying</span>
+        </div>
       </div>
 
       <div class="cards-col">
-        <!-- 1. Spectrogram -->
+        <!-- 1. Hydrophone / spectrogram -->
         <div class="card">
-          <h2>Spectrogram</h2>
-          <img id="spec-img" class="spec" alt="spectrogram" src="" />
-          <p id="spec-caption" class="caption"></p>
+          <div class="card-head">
+            <h2>HYDROPHONE H-1 to H-4 · 50–500 Hz</h2>
+            <span id="hydro-status" class="card-status">Listening…</span>
+          </div>
+          <div id="spec-box" class="spec-box">
+            <div id="spec-grid" class="spec-grid" aria-hidden="true"></div>
+            <img id="spec-img" class="spec-img" alt="spectrogram" src="" hidden />
+          </div>
+          <div class="spec-axis">
+            <span>0 s</span>
+            <span id="spec-caption">background ocean noise</span>
+            <span>2 s</span>
+          </div>
           <p id="spec-error" class="error" hidden></p>
           <audio id="demo-audio" preload="none"></audio>
         </div>
 
-        <!-- 2. Detection -->
-        <div class="card" id="detection-card" hidden>
-          <h2>Detection</h2>
-          <p id="detection-line" class="detection-line"></p>
-        </div>
-
-        <!-- 3. Vessels in the zone -->
+        <!-- 2. Vessels in the zone -->
         <div class="card">
-          <h2>Vessels in the zone</h2>
+          <div class="card-head">
+            <h2>Vessels in the zone</h2>
+            <span class="card-status muted">speed before → now</span>
+          </div>
           <div id="zone-list"></div>
           <p id="zone-error" class="error" hidden></p>
         </div>
 
-        <!-- 4. Brief -->
+        <!-- 3. Brief -->
         <div class="card">
-          <h2 id="brief-label">AI BRIEF · CACHED</h2>
+          <div class="card-head">
+            <h2 id="brief-label">AI BRIEF · CACHED</h2>
+          </div>
           <p id="brief-body" class="brief-body"></p>
           <p id="brief-error" class="error" hidden></p>
         </div>
 
-        <!-- 5. Stats -->
+        <!-- 4. Stats -->
         <div class="card">
-          <h2>Session stats</h2>
           <div class="stats">
             <div class="stat"><span class="stat-num" id="stat-detections">0</span><span class="stat-label">Detections (sim)</span></div>
             <div class="stat"><span class="stat-num" id="stat-alerts">0</span><span class="stat-label">Alerts sent (sim)</span></div>
@@ -89,10 +119,18 @@
       </div>
     </section>
 
+    <!-- DETECTIONS TAB -->
+    <section class="panel" data-panel="detections" hidden>
+      <div class="card wide" id="detection-card">
+        <div class="card-head"><h2>Detection</h2></div>
+        <p id="detection-line" class="detection-line"></p>
+      </div>
+    </section>
+
     <!-- SHIP COMPLIANCE TAB -->
     <section class="panel" data-panel="compliance" hidden>
       <div class="card wide">
-        <h2>Ship compliance</h2>
+        <div class="card-head"><h2>Ship compliance</h2></div>
         <p id="compliance-pct" class="compliance-pct"></p>
         <div id="compliance-table"></div>
         <p id="compliance-error" class="error" hidden></p>

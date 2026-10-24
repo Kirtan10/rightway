@@ -2,12 +2,25 @@
 
 ## Files
 
-- `index.html` — structure only: header (title, tagline, pill, DEMO DATA badge,
-  tabs), two-column body (map column + cards column), compliance tab, footer.
-  Loads pinned Leaflet 1.9.4 CSS/JS from unpkg and then `app.js`.
-- `style.css` — dark navy theme, teal accent `#5eead4`, desktop-first two-column
-  grid, card styling, status chips, legend, tabs, pixelated spectrogram image.
+- `index.html` — structure only: header (whale SVG icon, title, inline tagline,
+  centered text tabs "Live bay / Detections / Ship compliance", location pill,
+  DEMO DATA badge), two-column Live bay body (map card + cards column),
+  Detections and Ship compliance tab panels, footer. Loads pinned Leaflet 1.9.4
+  CSS/JS from unpkg, Google Fonts (Inter + JetBrains Mono), then `app.js`.
+- `style.css` — dark navy theme (cards `#0d2236`, border `#1e3a52`, radius
+  16px), teal accent `#5eead4`, Inter for UI and JetBrains Mono for labels and
+  card headers, two-column grid, map overlays (title, buttons, legend pill row),
+  status chips, pixelated spectrogram, shimmering idle grid.
 - `app.js` — all behavior; `API = "http://localhost:8000"` constant at top.
+
+## Visual style (mockup)
+
+Schematic map with no tiles; a navy gradient backdrop; a simplified land
+polygon, faint graticule, a teal shipping-lane band + dashed centerline, a
+dashed Stellwagen Bank sanctuary ellipse, place labels, SVG ship icons rotated
+by heading, and glowing teal hydrophone dots. The map card carries overlays:
+top-left kicker + "Listening to the bay" title, top-right Simulate/Reset
+buttons, bottom-left legend pill row.
 
 ## Verified API shapes (from the running backend)
 
@@ -31,41 +44,89 @@ detection). If the request fails, the map renders without hydrophones and the
 error is logged to the console; positions are never invented. The earlier
 approach of deriving H-2 from the `/detections` zone has been removed.
 
-## Map
+## Map (schematic, no tiles)
 
-Leaflet map, CARTO dark tiles
-`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png` with attribution.
-Vessel markers are `L.circleMarker` colored by `STATUS_COLORS`. Each vessel gets
-a permanent tooltip "Name NN kn"; tooltip `direction` and `offset` are chosen
-from the vessel id via a small deterministic table so labels spread out and do
-not overlap at the fit zoom. `fitBounds` over all vessel points plus the four
-hydrophone points. The slow zone is an `L.circle` (amber, dashed) with radius
-`radius_nm * 1852` meters.
+Leaflet is kept only for projection, markers, and the zone circle — the tile
+layer is removed. Scroll-wheel zoom and dragging are disabled and zoom controls
+hidden. The map fills the full width of its card (`#map { width: 100% }`). The
+water background is a navy gradient (`#0a1e33` -> `#081626`).
+
+Framing: `fitToMarkers()` fits the view to the live vessel + hydrophone points
+(from `/vessels` and `/hydrophones`) with ~15% padding on each axis, so the
+action fills the card while the padding keeps the coastline visible at the left
+edge. It runs after vessels render, after hydrophones load, on returning to the
+Live bay tab, and on window `resize` (debounced). A fallback bounds is used only
+until the first data arrives.
+
+Base layers drawn once on load (`drawBaseMap()`): a smoother approximate
+coastline `L.polygon` (~70 points, `smoothFactor: 1.5`) running Cape Ann ->
+Boston Harbor/Hull -> South Shore -> Plymouth -> Cape Cod Canal -> the Cape's
+arm east to Chatham -> up the outer Cape -> the Provincetown hook curling back
+west; fill `#0f2a22` @ 0.9, stroke `#2f6b4f` 1.5px. The mainland edge is kept
+west of the vessels (Mystic @ lon -71.00) and the Cape arm south/east of them,
+so land never covers a vessel or hydrophone. Also: 3 faint graticule curves
+(`#ffffff` @ 0.04); a shipping-lane band (fill `#5eead4` @ 0.10, dashed
+centerline @ 0.35, "Boston shipping lane" label placed on the band at the west
+end, away from the vessel cluster); a dashed Stellwagen Bank sanctuary ellipse
+(`#5eead4` @ 0.35) with its label near the BOTTOM of the ellipse so it stays
+clear of the top-right buttons; and place labels (`L.divIcon`): "Boston" (white
+bold, placed west of H-1), "Plymouth"/"Cape Cod Bay"/"Cape Cod" (soft green).
+
+Vessels are `L.marker` with an SVG pointed-hull `divIcon` (~22x8). The hull
+points right (east) at 0°, so it is rotated by `heading - 90` (heading 90 ->
+0°, points right). Colored by status (normal `#e2e8f0`, alerted `#f59e0b`,
+complying `#22c55e`, not_complying `#ef4444`), each with a permanent 11px
+monospace "Name NN kn" tooltip with a dark text-shadow. Hydrophones are glowing
+teal dots with monospace teal labels. The slow zone is an `L.circle` (amber,
+dashed, faint fill) with radius `radius_nm * 1852` meters.
+
+Label de-overlap: `deOverlapLabels()` runs after each render (and refit). It
+measures every vessel label's bounding box; hydrophone labels are fixed
+obstacles. Any vessel label overlapping an already-placed label (or a
+hydrophone label) is rebound through a sequence of candidate placements
+(right/left/top/bottom offsets) until it no longer collides.
 
 ## State and polling
 
-A single `state` object: `{detection, timers}`. Pressing Simulate POSTs the
-detection, stores it, draws the zone + H-2 marker, switches the spectrogram,
-plays audio, renders the confidence, disables the button, then polls `/vessels`,
-`/compliance`, `/stats` every 1 s for 10 s (10 ticks) via `setInterval`,
-re-rendering markers and cards each tick. Reset POSTs `/reset`, clears timers,
-removes the zone + H-2 marker, and returns all cards to idle.
+A single `state` object holds the detection, poll timer, and map layers.
+Pressing Simulate POSTs the detection, stores it, draws the zone, switches the
+spectrogram to the demo image and sets the hydrophone-card status to "Up-call
+detected", plays audio, renders the confidence, disables the button, then polls
+`/vessels`, `/compliance`, `/stats` every 1 s for 10 s (10 ticks) via
+`setInterval`, re-rendering markers and cards each tick. Reset POSTs `/reset`,
+clears timers, removes the zone, and returns all cards to idle (hydrophone
+status back to "Listening…"). Hydrophone markers persist across detect/reset.
+
+## Tabs
+
+Three text tabs: Live bay (map + right cards), Detections (the detection card),
+and Ship compliance (the compliance table). Each tab toggles the `hidden`
+attribute on its panel. Because `.panel-live` uses `display: grid`, a global
+`[hidden] { display: none !important }` rule ensures a hidden panel actually
+disappears (the earlier bug: the grid panel's own `display` overrode the
+`hidden` attribute, so the Live bay map showed under every tab). Switching to
+Live bay calls `map.invalidateSize()` then re-fits and re-runs de-overlap.
 
 ## Cards
 
-1. Spectrogram — idle `/static/noise_spectrogram.png` "background ocean noise";
-   after detection `/static/demo_spectrogram.png` "synthetic demo clip" and an
-   `<audio>` of `/static/demo_upcall.wav` with `.play()` wrapped in a caught
-   promise. `image-rendering: pixelated`, width 100% of the card.
-2. Detection — hidden until detection; `H-2 · confidence ` + `conf.toFixed(2)`.
-3. Vessels in the zone — idle hint text; after detection a row per
-   `vessels_in_zone` with "before → now" (now pulled from `/vessels` by id) and
-   a status chip.
+1. Hydrophone — header "HYDROPHONE H-1 to H-4 · 50–500 Hz" with a status that
+   reads "Listening…" idle and "Up-call detected" after a detection. Idle shows
+   a CSS-grid of ~40x12 dim teal squares with random low opacities, gently
+   shimmering, with axis labels "0 s" / "background ocean noise" / "2 s". After
+   a detection it shows `/static/demo_spectrogram.png` scaled to the box
+   (`image-rendering: pixelated`) and the middle axis label becomes "synthetic
+   demo clip"; an `<audio>` of `/static/demo_upcall.wav` plays via a caught
+   `.play()` promise. (The idle noise PNG is no longer used.)
+2. Detection (Detections tab) — "No detections this session." until a detection,
+   then `H-2 · confidence ` + `conf.toFixed(2)` plus zone and time.
+3. Vessels in the zone — "speed before → now" in the header; idle hint text;
+   after detection a row per `vessels_in_zone` with "before → now" (now pulled
+   from `/vessels` by id) and a status chip.
 4. Brief — label "AI BRIEF · BEDROCK" if `source === "bedrock"` else
    "AI BRIEF · CACHED"; idle body text fixed; after vessels respond (compliance
    not null) show the `/brief` text via `textContent`.
-5. Stats — "Detections (sim)", "Alerts sent (sim)", "Compliance" ("—" when
-   null, else `${pct}%`).
+5. Stats — three columns with large numbers: "Detections (sim)", "Alerts sent
+   (sim)", "Compliance" ("—" when null, else `${pct}%`).
 
 ## Errors and escaping
 
