@@ -23,3 +23,8 @@
 
 - [ ] 5. Run `ruff check .` and `pytest -q`.
       _R1–R12_
+
+- [x] 6. Add `GET /hydrophones` (expose the 4 hydrophones from `backend/sim.py`
+      as `{id,lat,lon,simulated:true}`, positions unchanged) and a test that it
+      returns exactly H-1 to H-4 and H-2 matches the `/detections` zone center.
+      _R6a_

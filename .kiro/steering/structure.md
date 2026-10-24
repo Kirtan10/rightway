@@ -14,6 +14,7 @@
   raises `RuntimeError` if `ml/model.pt` is missing or fails to load).
 - `GET /vessels` -> list of `{id,name,type,lat,lon,heading,speed,status}`,
   status in `normal|alerted|complying|not_complying`.
+- `GET /hydrophones` -> list of `{id,lat,lon,simulated:true}` for H-1 to H-4.
 - `POST /detections {"hydrophone_id","wav"}` -> `{detection_id, hydrophone_id,
   confidence, zone{lat,lon,radius_nm}, vessels_in_zone[{id,name,speed_before}],
   synthetic_demo_clip:true, simulated:true}`.

@@ -48,6 +48,22 @@ def test_h2_zone_membership_by_haversine():
     assert inside == TARGETS
 
 
+def test_hydrophones_endpoint(client: TestClient):
+    r = client.get("/hydrophones")
+    assert r.status_code == 200
+    body = r.json()
+    assert {h["id"] for h in body} == {"H-1", "H-2", "H-3", "H-4"}
+    for h in body:
+        assert set(h) == {"id", "lat", "lon", "simulated"}
+        assert h["simulated"] is True
+
+    # H-2 must match the /detections zone center.
+    h2 = next(h for h in body if h["id"] == "H-2")
+    det = client.post("/detections", json={"hydrophone_id": "H-2"}).json()
+    assert det["zone"]["lat"] == h2["lat"]
+    assert det["zone"]["lon"] == h2["lon"]
+
+
 def test_detection_response_shape_and_flags(client: TestClient):
     r = client.post("/detections", json={"hydrophone_id": "H-2"})
     assert r.status_code == 200

@@ -57,6 +57,11 @@ def get_vessels() -> list[dict[str, Any]]:
     return _sim().vessels()
 
 
+@app.get("/hydrophones")
+def get_hydrophones() -> list[dict[str, Any]]:
+    return _sim().hydrophones()
+
+
 @app.post("/detections")
 def post_detection(req: DetectionRequest) -> dict[str, Any]:
     # Resolve + validate the wav path (only inside ml/).

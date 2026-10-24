@@ -235,5 +235,12 @@ class Simulation:
         self._stats["alerts_sent"] += len(in_zone)
         return detection
 
+    def hydrophones(self) -> list[dict[str, Any]]:
+        """Return the 4 defined hydrophones (positions unchanged)."""
+        return [
+            {"id": hid, "lat": lat, "lon": lon, "simulated": True}
+            for hid, (lat, lon) in HYDROPHONES.items()
+        ]
+
     def brief_default_path(self) -> Path:
         return ROOT / "backend" / "cache" / "brief.json"

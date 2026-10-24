@@ -49,6 +49,11 @@ clock, with no background threads.
 `GET /vessels` -> list of `{id,name,type,lat,lon,heading,speed,status,
 simulated:true}`.
 
+### R6a — GET /hydrophones
+`GET /hydrophones` -> list of `{id,lat,lon,simulated:true}` for the 4
+hydrophones already defined in `backend/sim.py` (H-1 to H-4), with their
+positions unchanged. H-2's position SHALL match the `/detections` zone center.
+
 ### R7 — GET /compliance
 `GET /compliance` -> `{compliance_pct, vessels[{id,name,before,after,status}],
 simulated:true}`. `compliance_pct = complying / in-zone * 100` (75.0 in the

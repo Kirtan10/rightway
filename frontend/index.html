@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RightWay</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>RightWay</h1>
+      <p class="tagline">Hear the whale. Slow the ship.</p>
+    </div>
+    <div class="meta">
+      <span class="pill">Massachusetts Bay · 4 hydrophones · 9 vessels</span>
+      <span class="badge-demo">DEMO DATA</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab is-active" data-tab="live">Live bay</button>
+      <button class="tab" data-tab="compliance">Ship compliance</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- LIVE BAY TAB -->
+    <section class="panel" data-panel="live">
+      <div class="map-col">
+        <div id="map"></div>
+        <div class="map-controls">
+          <button id="simulate-btn" class="btn-primary">Simulate whale call</button>
+          <button id="reset-btn" class="btn-ghost">Reset</button>
+        </div>
+        <ul class="legend">
+          <li><span class="dot" style="background:#cbd5e1"></span>normal</li>
+          <li><span class="dot" style="background:#f59e0b"></span>alerted</li>
+          <li><span class="dot" style="background:#22c55e"></span>complying</li>
+          <li><span class="dot" style="background:#ef4444"></span>not complying</li>
+          <li><span class="dot ring"></span>hydrophone</li>
+        </ul>
+      </div>
+
+      <div class="cards-col">
+        <!-- 1. Spectrogram -->
+        <div class="card">
+          <h2>Spectrogram</h2>
+          <img id="spec-img" class="spec" alt="spectrogram" src="" />
+          <p id="spec-caption" class="caption"></p>
+          <p id="spec-error" class="error" hidden></p>
+          <audio id="demo-audio" preload="none"></audio>
+        </div>
+
+        <!-- 2. Detection -->
+        <div class="card" id="detection-card" hidden>
+          <h2>Detection</h2>
+          <p id="detection-line" class="detection-line"></p>
+        </div>
+
+        <!-- 3. Vessels in the zone -->
+        <div class="card">
+          <h2>Vessels in the zone</h2>
+          <div id="zone-list"></div>
+          <p id="zone-error" class="error" hidden></p>
+        </div>
+
+        <!-- 4. Brief -->
+        <div class="card">
+          <h2 id="brief-label">AI BRIEF · CACHED</h2>
+          <p id="brief-body" class="brief-body"></p>
+          <p id="brief-error" class="error" hidden></p>
+        </div>
+
+        <!-- 5. Stats -->
+        <div class="card">
+          <h2>Session stats</h2>
+          <div class="stats">
+            <div class="stat"><span class="stat-num" id="stat-detections">0</span><span class="stat-label">Detections (sim)</span></div>
+            <div class="stat"><span class="stat-num" id="stat-alerts">0</span><span class="stat-label">Alerts sent (sim)</span></div>
+            <div class="stat"><span class="stat-num" id="stat-compliance">—</span><span class="stat-label">Compliance</span></div>
+          </div>
+          <p id="stats-error" class="error" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SHIP COMPLIANCE TAB -->
+    <section class="panel" data-panel="compliance" hidden>
+      <div class="card wide">
+        <h2>Ship compliance</h2>
+        <p id="compliance-pct" class="compliance-pct"></p>
+        <div id="compliance-table"></div>
+        <p id="compliance-error" class="error" hidden></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    Prototype: classifier trained on synthetic up-calls, not real-world accuracy.
+    All vessel data is simulated. Screening aid, not a replacement for NOAA systems.
+    Map is schematic.
+  </footer>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="app.js"></script>
+</body>
+</html>
