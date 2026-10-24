@@ -26,15 +26,18 @@ roughly east from Boston Harbor.
 ### R3 — Four hydrophones, H-2 membership
 THE SYSTEM SHALL define 4 hydrophones H-1 to H-4. H-2 SHALL be placed so that
 exactly Nordic Tide, Harbor Queen, Blue Fin II, and Cape Runner are within
-10 nm, and the other 5 vessels are more than 10 nm away (verified by a
-haversine-distance test).
+10 nm, and the other 5 vessels are more than 10 nm away. This membership SHALL
+hold for every clock time and every detection time given the bounded ship
+movement in R14 (verified by a Hypothesis property test over haversine
+distance).
 
 ### R4 — POST /detections
 WHEN `POST /detections {"hydrophone_id","wav"}` is received THE SYSTEM SHALL
 call `ml.predict.predict(wav)` for the confidence (default wav
 `ml/demo_upcall.wav`; only paths inside `ml/` are allowed), never hard-coding a
 score; create a 10 nm zone centered on that hydrophone; mark in-zone vessels
-`alerted`; and return `{detection_id, hydrophone_id, confidence,
+`alerted` using their CURRENT positions at detection time; and return
+`{detection_id, hydrophone_id, confidence,
 zone{lat,lon,radius_nm:10}, vessels_in_zone[{id,name,speed_before}],
 synthetic_demo_clip:true, simulated:true}`.
 
@@ -47,7 +50,9 @@ clock, with no background threads.
 
 ### R6 — GET /vessels
 `GET /vessels` -> list of `{id,name,type,lat,lon,heading,speed,status,
-simulated:true}`.
+simulated:true}`, where `lat`/`lon` are the ship's CURRENT position and
+`heading` is its current heading (flipped 180 deg while it travels back toward
+its seed; see R14).
 
 ### R6a — GET /hydrophones
 `GET /hydrophones` -> list of `{id,lat,lon,simulated:true}` for the 4
@@ -85,7 +90,9 @@ event loop. The route SHALL NOT import prompt/validation internals of
 counted from sim events only, starting at 0.
 
 ### R10 — POST /reset
-`POST /reset` SHALL restore the initial state, clear detections, and zero stats.
+`POST /reset` SHALL restore the initial state (including each ship's seed
+position and the movement clock baseline, so ships resume from their seeds),
+clear detections, and zero stats.
 
 ### R11 — Static ML assets, read-only
 THE SYSTEM SHALL serve `ml/demo_spectrogram.png`, `ml/demo_spectrogram.json`,
@@ -102,3 +109,15 @@ IF a detection is already active THEN `POST /detections` SHALL return HTTP 409
 with detail "A detection is already active. Reset first." and SHALL change
 nothing (no model call, no state change). A `POST /reset` clears the active
 detection so a new detection is allowed again.
+
+### R14 — Ships move (lazy, accelerated, ping-pong)
+THE SYSTEM SHALL move each ship along its heading at its CURRENT speed, computed
+lazily from the injectable clock with no background threads. Simulated time
+SHALL be accelerated by a configurable `TIME_SCALE` (default 60, so 1 real
+second = 1 simulated minute). To keep the demo stable, each ship SHALL
+ping-pong back and forth along its heading line within `MAX_OFFSET_NM` (default
+1.5) of its seed position, reversing direction at each end. Distance SHALL be
+integrated piecewise so a speed change after an alert takes effect from that
+moment (a slowed ship visibly covers less distance per simulated minute, while
+Cape Runner stays fast). Every ship SHALL always remain within `MAX_OFFSET_NM`
+of its seed position.

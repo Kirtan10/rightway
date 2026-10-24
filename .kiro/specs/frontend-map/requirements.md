@@ -55,8 +55,9 @@ chip) with the compliance % above it; "No detection yet." before a detection.
 WHEN "Simulate whale call" is pressed THE SYSTEM SHALL POST `/detections
 {"hydrophone_id":"H-2","wav":"ml/demo_upcall.wav"}`, draw the 10 nm zone as an
 amber dashed circle (`radius_nm * 1852` m), switch the spectrogram, play the
-demo audio (autoplay errors caught silently), show the confidence, poll
-`/vessels`, `/compliance`, `/stats` every 1 s for 10 s. Simulate SHALL stay
+demo audio (autoplay errors caught silently), show the confidence, and poll
+`/compliance` and `/stats` every 1 s for 10 s (vessel polling is continuous;
+see R12). Simulate SHALL stay
 disabled from the moment a detection starts until Reset is clicked (not only for
 the 10 s polling window). "Reset" SHALL POST `/reset`, remove the circle, and
 restore every card to idle.
@@ -87,3 +88,13 @@ SHALL dismiss on Esc or a Close button. The dialog SHALL use `role="dialog"`,
 copied or opened, that vessel's row SHALL read "Notice sent (sim)" until Reset,
 and a "Notices sent (sim)" count under the stats SHALL increment; Reset SHALL
 clear it. THE SYSTEM SHALL never send anything automatically.
+
+### R12 — Live ship movement
+THE SYSTEM SHALL poll `GET /vessels` every 1 second at all times (before and
+after any detection, and after Reset), and SHALL move the existing markers with
+`setLatLng`, update each marker's rotation (from the current heading) and its
+"Name NN kn" label text in place, WITHOUT rebuilding the marker layer on every
+tick. A full marker rebuild SHALL happen only on a structural change (the idle
+<-> zone label set flips). THE SYSTEM SHALL re-run the label de-overlap pass at
+most once every 3 seconds (not every tick). THE SYSTEM SHALL show a small mono
+label in the map's bottom-right corner reading "Simulated · time ×60".

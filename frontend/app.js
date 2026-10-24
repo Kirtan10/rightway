@@ -45,6 +45,7 @@ const STATIC = {
 const state = {
   detection: null, // last /detections response
   pollTimer: null,
+  vesselTimer: null, // always-on 1 s /vessels poll (ships keep moving)
   vesselLayer: null, // L.layerGroup of vessel markers
   zoneCircle: null,
   hydrophoneLayer: null, // L.layerGroup of hydrophone markers
@@ -257,6 +258,22 @@ function drawBaseMap() {
   placeDivLabel(41.75, -70.05, "Cape Cod", "place-label area");
 }
 
+// Simulated-time acceleration shown to the user. Matches the backend
+// TIME_SCALE (1 real second = 60 simulated seconds).
+const SIM_TIME_SCALE = 60;
+
+// A small mono badge in the map's bottom-right corner reminding the viewer the
+// feed is simulated and time is accelerated.
+function addSimClockBadge() {
+  const badge = L.control({ position: "bottomright" });
+  badge.onAdd = () => {
+    const el = L.DomUtil.create("div", "sim-clock-badge");
+    el.textContent = `Simulated \u00B7 time \u00D7${SIM_TIME_SCALE}`;
+    return el;
+  };
+  badge.addTo(map);
+}
+
 function placeEllipse(lat, lon, rLat, rLon, style) {
   const pts = [];
   for (let a = 0; a <= 360; a += 10) {
@@ -299,15 +316,59 @@ function inZoneIds() {
   return new Set(state.detection.vessels_in_zone.map((v) => v.id));
 }
 
-function renderVessels(vessels) {
+function renderVessels(vessels, structuralOverride = false) {
+  const zoomed = state.zoomMode === "zone";
+  const inZone = inZoneIds();
+
+  // Structural change (zoom mode flip, first render, or missing layer) means
+  // the set of labelled markers changes, so rebuild from scratch. Otherwise we
+  // move the existing markers in place (no rebuild) so motion stays smooth.
+  const structural =
+    structuralOverride ||
+    !state.vesselLayer ||
+    !state.vesselMarkersById ||
+    state.vesselZoomed !== zoomed;
+
+  if (structural) {
+    rebuildVessels(vessels, zoomed, inZone);
+    state.lastVessels = vessels;
+    // Fixed layout changed: lay out tooltips, then de-overlap immediately.
+    requestAnimationFrame(() => deOverlapLabels());
+    return;
+  }
+
+  // In-place update: move each marker, update rotation + label text.
+  for (const v of vessels) {
+    const marker = state.vesselMarkersById[v.id];
+    if (!marker) continue;
+    marker.setLatLng([v.lat, v.lon]);
+    const color = STATUS_COLORS[v.status] || STATUS_COLORS.normal;
+    marker.setIcon(vesselIcon(color, v.heading));
+    if (marker.getTooltip()) {
+      const label = `${v.name} ${v.speed} kn`;
+      if (label !== marker._labelText) {
+        marker._labelText = label;
+        marker.setTooltipContent(label);
+      }
+    }
+  }
+
+  state.lastVessels = vessels;
+  // Movement happens every second; de-overlap is expensive and only needs to
+  // run occasionally, so throttle it to at most once every 3 s.
+  scheduleDeOverlap();
+}
+
+// Full (re)build of vessel markers. Used on first render and whenever the
+// labelled set changes (idle <-> zone). Stores markers by id for in-place moves.
+function rebuildVessels(vessels, zoomed, inZone) {
   if (state.vesselLayer) {
     state.vesselLayer.remove();
   }
   state.vesselLayer = L.layerGroup().addTo(map);
   state.vesselMarkers = [];
-
-  const zoomed = state.zoomMode === "zone";
-  const inZone = inZoneIds();
+  state.vesselMarkersById = {};
+  state.vesselZoomed = zoomed;
 
   for (const v of vessels) {
     const color = STATUS_COLORS[v.status] || STATUS_COLORS.normal;
@@ -335,14 +396,11 @@ function renderVessels(vessels) {
     }
     marker.addTo(state.vesselLayer);
     state.vesselMarkers.push(marker);
+    state.vesselMarkersById[v.id] = marker;
   }
 
   // Combined "4 vessels" label near H-2 in the idle view only.
   updateClusterLabel(!zoomed);
-
-  state.lastVessels = vessels;
-  // Let Leaflet lay out the tooltips, then nudge any that overlap.
-  requestAnimationFrame(() => deOverlapLabels());
 }
 
 // A single "4 vessels" divIcon near H-2, shown only in the idle whole-bay view.
@@ -382,6 +440,28 @@ const LABEL_TRIES = [
 
 function rectsOverlap(a, b) {
   return !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top);
+}
+
+// The label de-overlap pass is costly (it measures DOM rects and may rebind
+// tooltips), so during continuous 1 s movement we run it at most once every
+// DEOVERLAP_MIN_MS. A trailing call is scheduled if ticks arrive meanwhile.
+const DEOVERLAP_MIN_MS = 3000;
+
+function scheduleDeOverlap() {
+  const now = Date.now();
+  const last = state.lastDeOverlapAt || 0;
+  const since = now - last;
+  if (since >= DEOVERLAP_MIN_MS) {
+    state.lastDeOverlapAt = now;
+    requestAnimationFrame(() => deOverlapLabels());
+    return;
+  }
+  if (state.deOverlapTimer) return; // a trailing pass is already queued
+  state.deOverlapTimer = setTimeout(() => {
+    state.deOverlapTimer = null;
+    state.lastDeOverlapAt = Date.now();
+    requestAnimationFrame(() => deOverlapLabels());
+  }, DEOVERLAP_MIN_MS - since);
 }
 
 function labelRect(marker) {
@@ -455,6 +535,9 @@ function deOverlapLabels() {
     }
     if (rect) occupied.push(rect);
   }
+
+  // Any direct pass resets the throttle window used by scheduleDeOverlap().
+  state.lastDeOverlapAt = Date.now();
 }
 
 async function loadHydrophones() {
@@ -878,16 +961,34 @@ function renderComplianceTab(data) {
 // ---------------------------------------------------------------------------
 // Polling / refresh
 // ---------------------------------------------------------------------------
-async function refreshAll() {
-  // Vessels + map
+// Lightweight 1 s loop: fetch /vessels and move the markers in place. Runs at
+// all times (not only after a detection) so the simulated ships always move.
+async function updateVessels() {
   try {
     const vessels = await api("/vessels");
-    renderVessels(vessels);
+    renderVessels(vessels); // in-place move unless the zoom mode changed
     if (state.detection) renderZoneList(state.detection, vessels);
     clearError("zone-error");
   } catch (e) {
     showError("zone-error", `Vessels unavailable: ${e.message}`);
   }
+}
+
+function startVesselPolling() {
+  stopVesselPolling();
+  state.vesselTimer = setInterval(updateVessels, 1000);
+}
+
+function stopVesselPolling() {
+  if (state.vesselTimer) {
+    clearInterval(state.vesselTimer);
+    state.vesselTimer = null;
+  }
+}
+
+async function refreshAll() {
+  // Vessels + map (shared by the detection refresh and the initial render).
+  await updateVessels();
 
   // Compliance (drives brief reveal + compliance tab)
   let responded = false;
@@ -1052,7 +1153,13 @@ function init() {
   setDetectionIdle();
 
   // Draw all four hydrophones on load, then the initial (idle) bay state.
-  loadHydrophones().then(refreshAll);
+  // Once the first render is done, poll /vessels every second forever so the
+  // simulated ships are always moving (before and after any detection).
+  loadHydrophones()
+    .then(refreshAll)
+    .then(startVesselPolling);
+
+  addSimClockBadge();
 }
 
 init();

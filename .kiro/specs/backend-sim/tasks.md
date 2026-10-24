@@ -49,3 +49,16 @@
       second GET doesn't call again; live `source:"cache"` -> cached file;
       `/reset` clears the per-detection cache.
       _R8_
+
+- [x] 9. Make ships move: add `TIME_SCALE` (default 60), `MAX_OFFSET_NM`
+      (default 1.5), and lazy time-based ping-pong movement in `backend/sim.py`
+      (seed-relative, piecewise distance so a post-alert speed change takes
+      effect from that moment, heading flipped 180 deg on the return leg).
+      `GET /vessels` returns current lat/lon/heading; zone membership and
+      `reset` (seed positions + clock baseline) use it. Tests in
+      `tests/test_sim_movement.py`: a Hypothesis property test (exactly the 4
+      cluster ships within 10 nm of H-2 and every ship within 1.5 nm of seed,
+      for any time and detection time); position changes as the clock advances;
+      a slowed ship covers less distance per simulated minute after the
+      response while Cape Runner stays fast; reset restores seed positions.
+      _R3, R4, R6, R10, R14_

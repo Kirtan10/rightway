@@ -35,3 +35,10 @@
       "Notices sent (sim)" count under the stats increments; Reset clears it.
       Nothing is sent automatically.
       _R11_
+
+- [x] 7. Live ship movement: poll `GET /vessels` every 1 s at all times; move
+      existing markers with `setLatLng` and update rotation + label text in
+      place (rebuild only on the idle <-> zone structural flip); throttle the
+      label de-overlap pass to at most once every 3 s; add a bottom-right mono
+      badge "Simulated · time ×60".
+      _R12_
