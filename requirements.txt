@@ -1,5 +1,6 @@
 attrs==26.1.0
 bleach==6.4.0
+boto3==1.40.0
 certifi==2026.10.23
 cffi==2.1.1
 charset-normalizer==3.5.2
