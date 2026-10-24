@@ -7,7 +7,7 @@ issues a 10 nm slow zone, shows simulated ship responses, and generates an AI
 brief for harbor authorities.
 
 - **Live demo:** [http://<EC2-ELASTIC-IP>:8000/](http://3.149.149.129:8000)
-- **Demo video:** https://youtu.be/CPQtlCxl3ds
+- **Demo video:** [https://youtu.be/CPQtlCxl3ds](https://youtu.be/2uxJtUpywj4)
 - **Track:** Climate Tech & Clean Energy
 
 ## Problem
