@@ -1,0 +1,78 @@
+# Requirements — backend-sim
+
+## Introduction
+
+The backend serves a FastAPI app that simulates vessel traffic in Massachusetts
+Bay, issues a 10 nm slow zone when an up-call is detected, computes compliance,
+and exposes the API contract from `.kiro/steering/structure.md`. All vessel data
+is simulated (`"simulated": true`); confidence comes from `ml.predict.predict`
+and is never hard-coded. Ownership note: this spec covers `backend/` except
+`backend/brief.py` and `backend/cache/brief.json`, which are unchanged.
+
+## Requirements
+
+### R1 — FastAPI app and CORS
+THE SYSTEM SHALL serve a FastAPI app from `backend/app.py`, runnable with
+`uvicorn backend.app:app --port 8000` from the repo root, with CORS allowing
+`http://localhost:5500` and `http://127.0.0.1:5500`.
+
+### R2 — Nine simulated vessels
+THE SYSTEM SHALL simulate 9 vessels in Massachusetts Bay (state in
+`backend/sim.py`) with starting speeds (knots): Mystic 9, Atlantic Star 18,
+Orion Bay 17, Blue Fin II 11, Nordic Tide 16, Harbor Queen 22, Cape Runner 19,
+Sea Ledger 15, Gull Point 8. Most sit along a Boston shipping lane running
+roughly east from Boston Harbor.
+
+### R3 — Four hydrophones, H-2 membership
+THE SYSTEM SHALL define 4 hydrophones H-1 to H-4. H-2 SHALL be placed so that
+exactly Nordic Tide, Harbor Queen, Blue Fin II, and Cape Runner are within
+10 nm, and the other 5 vessels are more than 10 nm away (verified by a
+haversine-distance test).
+
+### R4 — POST /detections
+WHEN `POST /detections {"hydrophone_id","wav"}` is received THE SYSTEM SHALL
+call `ml.predict.predict(wav)` for the confidence (default wav
+`ml/demo_upcall.wav`; only paths inside `ml/` are allowed), never hard-coding a
+score; create a 10 nm zone centered on that hydrophone; mark in-zone vessels
+`alerted`; and return `{detection_id, hydrophone_id, confidence,
+zone{lat,lon,radius_nm:10}, vessels_in_zone[{id,name,speed_before}],
+synthetic_demo_clip:true, simulated:true}`.
+
+### R5 — Lazy response after delay
+WHEN `SIM_RESPONSE_SECONDS` (default 4) have passed since the detection THE
+SYSTEM SHALL move alerted vessels to their response: Nordic Tide 16->10,
+Harbor Queen 22->10, Blue Fin II 11->9 (`complying`), Cape Runner 19->17
+(`not_complying`). This SHALL be computed lazily on read via an injectable
+clock, with no background threads.
+
+### R6 — GET /vessels
+`GET /vessels` -> list of `{id,name,type,lat,lon,heading,speed,status,
+simulated:true}`.
+
+### R7 — GET /compliance
+`GET /compliance` -> `{compliance_pct, vessels[{id,name,before,after,status}],
+simulated:true}`. `compliance_pct = complying / in-zone * 100` (75.0 in the
+demo), or `null` before any detection or before the response time has passed.
+
+### R8 — GET /brief
+`GET /brief` SHALL return `backend/cache/brief.json` as-is, adding
+`"source":"cache"` if missing; if the file is missing it SHALL return
+`{"brief":"Brief not generated yet.","source":"cache"}`. It SHALL NOT import or
+call `backend/brief.py`.
+
+### R9 — GET /stats
+`GET /stats` -> `{detections, alerts_sent, compliance_pct, simulated:true}`,
+counted from sim events only, starting at 0.
+
+### R10 — POST /reset
+`POST /reset` SHALL restore the initial state, clear detections, and zero stats.
+
+### R11 — Static ML assets, read-only
+THE SYSTEM SHALL serve `ml/demo_spectrogram.png`, `ml/demo_spectrogram.json`,
+`ml/noise_spectrogram.png`, and `ml/demo_upcall.wav` read-only at
+`/static/<filename>` (only those 4 files), without copying or modifying any
+`ml/` files.
+
+### R12 — predict() failure -> 503
+IF `predict()` raises THEN THE SYSTEM SHALL return HTTP 503 with the error
+message and SHALL NOT invent a score.
