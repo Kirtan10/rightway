@@ -20,9 +20,7 @@ accuracy for real whales.
 
 ## Required UI and docs copy
 
-- Footer text: "Prototype: classifier trained on synthetic up-calls, not
-  real-world accuracy. All vessel data is simulated. Screening aid, not a
-  replacement for NOAA systems. Map is schematic."
+- Footer text: "Prototype: classifier trained on synthetic up-calls, not real-world accuracy. All vessel data is simulated. Screening aid, not a replacement for NOAA systems. Map is schematic."
 - Never say the classifier was trained on real or public recordings. Never say
   vessel tracks come from AIS.
 - Every count or statistic in the UI comes from the simulation and resets to 0
