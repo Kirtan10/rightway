@@ -143,7 +143,7 @@ def generate_brief_result(
                 )
             else:
                 return {"brief": text, "source": "bedrock"}
-    except Exception:  # noqa: BLE001 - any Bedrock/boto3/env failure falls back to cache
+    except Exception:
         logger.warning("Bedrock call failed; falling back to cache.", exc_info=True)
     return {"brief": _read_cache(), "source": "cache"}
 
